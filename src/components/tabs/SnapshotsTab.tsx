@@ -405,6 +405,18 @@ export default function SnapshotsTab() {
           const quarter = quarters.find(q => q.id === snapshot.quarter_id);
           const hasAnalysis = snapshot.analysis || analysisState[snapshot.id]?.analysis;
           
+          // Calculate stats from data if stats is missing
+          const snapshotStats = snapshot.stats || (() => {
+            const grades = snapshot.data?.grades || [];
+            const totalFGrades = grades.filter((g: any) => g.grade === 'F' && g.grade_type !== 'warning').length;
+            const totalWarnings = grades.filter((g: any) => g.grade === 'F' && g.grade_type === 'warning').length;
+            const gradedCount = grades.filter((g: any) => g.grade).length;
+            const passRate = gradedCount > 0 
+              ? ((gradedCount - totalFGrades) / gradedCount) * 100 
+              : 0;
+            return { totalFGrades, totalWarnings, passRate };
+          })();
+          
           return (
             <div
               key={snapshot.id}
@@ -434,18 +446,17 @@ export default function SnapshotsTab() {
                 )}
               </div>
               
-              {snapshot.stats && (
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="bg-[var(--bg-hover)] rounded-lg p-3 text-center border border-[var(--border-subtle)]">
-                    <div className="text-xl font-bold text-[var(--color-danger)]">{snapshot.stats.totalFGrades}</div>
-                    <div className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">F-betyg</div>
-                  </div>
-                  <div className="bg-[var(--bg-hover)] rounded-lg p-3 text-center border border-[var(--border-subtle)]">
-                    <div className="text-xl font-bold text-[var(--color-success)]">{snapshot.stats.passRate.toFixed(0)}%</div>
-                    <div className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Godkända</div>
-                  </div>
+              {/* Always show stats - calculated from data if needed */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="bg-[var(--bg-hover)] rounded-lg p-3 text-center border border-[var(--border-subtle)]">
+                  <div className="text-xl font-bold text-[var(--color-danger)]">{snapshotStats.totalFGrades}</div>
+                  <div className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">F-betyg</div>
                 </div>
-              )}
+                <div className="bg-[var(--bg-hover)] rounded-lg p-3 text-center border border-[var(--border-subtle)]">
+                  <div className="text-xl font-bold text-[var(--color-success)]">{snapshotStats.passRate.toFixed(0)}%</div>
+                  <div className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Godkända</div>
+                </div>
+              </div>
               
               <div className="mt-auto pt-4 border-t border-[var(--border-subtle)] flex justify-between items-center text-xs text-[var(--text-tertiary)]">
                 <span>
@@ -507,26 +518,37 @@ export default function SnapshotsTab() {
                 </div>
               )}
 
-              {selectedSnapshotData.stats && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                  <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
-                    <div className="text-2xl font-bold text-[var(--color-danger)]">{selectedSnapshotData.stats.totalFGrades}</div>
-                    <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">F-betyg</div>
+              {/* Stats - calculated from data if stats is missing */}
+              {(() => {
+                const grades = selectedSnapshotData.data?.grades || [];
+                const modalStats = selectedSnapshotData.stats || {
+                  totalFGrades: grades.filter((g: any) => g.grade === 'F' && g.grade_type !== 'warning').length,
+                  totalWarnings: grades.filter((g: any) => g.grade === 'F' && g.grade_type === 'warning').length,
+                  passRate: grades.filter((g: any) => g.grade).length > 0 
+                    ? ((grades.filter((g: any) => g.grade).length - grades.filter((g: any) => g.grade === 'F' && g.grade_type !== 'warning').length) / grades.filter((g: any) => g.grade).length) * 100 
+                    : 0
+                };
+                return (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                    <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
+                      <div className="text-2xl font-bold text-[var(--color-danger)]">{modalStats.totalFGrades}</div>
+                      <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">F-betyg</div>
+                    </div>
+                    <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
+                      <div className="text-2xl font-bold text-[var(--color-warning)]">{modalStats.totalWarnings}</div>
+                      <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">Varningar</div>
+                    </div>
+                    <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
+                      <div className="text-2xl font-bold text-[var(--color-success)]">{modalStats.passRate.toFixed(1)}%</div>
+                      <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">Godkända</div>
+                    </div>
+                    <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
+                      <div className="text-2xl font-bold text-[var(--color-primary)]">{selectedSnapshotData.data?.students?.length || 0}</div>
+                      <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">Elever</div>
+                    </div>
                   </div>
-                  <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
-                    <div className="text-2xl font-bold text-[var(--color-warning)]">{selectedSnapshotData.stats.totalWarnings}</div>
-                    <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">Varningar</div>
-                  </div>
-                  <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
-                    <div className="text-2xl font-bold text-[var(--color-success)]">{selectedSnapshotData.stats.passRate.toFixed(1)}%</div>
-                    <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">Godkända</div>
-                  </div>
-                  <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
-                    <div className="text-2xl font-bold text-[var(--color-primary)]">{selectedSnapshotData.data?.students?.length || 0}</div>
-                    <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">Elever</div>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* AI Analysis Section */}
               <div className="border-t border-[var(--border-subtle)] pt-8">
