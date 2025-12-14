@@ -1,25 +1,7 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
-// Use environment variables for security
-// Create a .env.local file with these values (see env.example)
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+// Environment variables (set in .env.local or Vercel)
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://fykxvhrlkjltgqsksyoz.supabase.co';
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5a3h2aHJsa2psdGdxc2tzeW96Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI5MDYxNzYsImV4cCI6MjA1ODQ4MjE3Nn0.p-tE7MS2vPH0RNlW5U5t_A_UkLHEtMwZVxyHwQX6Sns';
 
-// Create a mock client for build time when env vars are not available
-let supabase: SupabaseClient;
-
-if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-  supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-} else {
-  // During build or when env vars are missing, create a placeholder
-  // This will show warnings at runtime but won't crash the build
-  console.warn('⚠️ Missing Supabase environment variables. Please check .env.local');
-  
-  // Create with placeholder values - will fail at runtime but not at build
-  supabase = createClient(
-    'https://placeholder.supabase.co',
-    'placeholder-key'
-  );
-}
-
-export { supabase };
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);

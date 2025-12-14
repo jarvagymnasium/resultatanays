@@ -36,12 +36,17 @@ export const PERMISSIONS: Record<Role['name'], Permission[]> = {
   analyst: ['view_data']
 };
 
-// Admin emails are loaded from environment variables for security
+// Admin emails loaded from environment variable
 // Set NEXT_PUBLIC_ADMIN_EMAILS in .env.local (comma-separated)
-export const PERMANENT_ADMINS: string[] = 
-  typeof window !== 'undefined' && process.env.NEXT_PUBLIC_ADMIN_EMAILS
-    ? process.env.NEXT_PUBLIC_ADMIN_EMAILS.split(',').map(e => e.trim().toLowerCase())
-    : [];
+const adminEmailsEnv = process.env.NEXT_PUBLIC_ADMIN_EMAILS || '';
+export const PERMANENT_ADMINS: string[] = adminEmailsEnv
+  ? adminEmailsEnv.split(',').map(e => e.trim().toLowerCase())
+  : [
+      // Fallback admins if env var is not set
+      'iman.ehsani@jarvagymnasium.se',
+      'ala.nestani.rad@jarvagymnasium.se',
+      'amir.sajadi@jarvagymnasium.se'
+    ];
 
 export interface Class {
   id: string;
