@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
       const errorData = await response.json();
       console.error('OpenAI API error:', errorData);
       return NextResponse.json(
-        { error: 'Failed to generate analysis' },
+        { error: `OpenAI error: ${errorData.error?.message || JSON.stringify(errorData)}` },
         { status: 500 }
       );
     }
