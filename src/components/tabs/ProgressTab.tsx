@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
 import { Line } from 'react-chartjs-2';
 import {
@@ -9,51 +9,28 @@ import {
   LinearScale,
   PointElement,
   LineElement,
-  Filler,
   Title,
   Tooltip,
   Legend,
 } from 'chart.js';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 export default function ProgressTab() {
-  const { gradeHistory, students, courses, classes, activeQuarter, archivedStudents, archivedCourses, quarters } = useAppStore();
-  const [scope, setScope] = useState<'active' | 'all'>('active');
+  const { gradeHistory, students, courses, classes } = useAppStore();
 
-  // Combine active + archived students/courses so we can show historical improvements
-  const allStudents = useMemo(() => [...students, ...archivedStudents], [students, archivedStudents]);
-  const allCourses = useMemo(() => [...courses, ...archivedCourses], [courses, archivedCourses]);
-
-  // Find which quarters have improvements (F → better grade)
-  const quartersWithImprovements = useMemo(() => {
-    const quarterIds = new Set(
-      gradeHistory
-        .filter(h => h.from_grade === 'F')  // Legacy logic
-        .map(h => h.quarter_id)
-    );
-    return quarters.filter(q => quarterIds.has(q.id));
-  }, [gradeHistory, quarters]);
-
-  // Get improvements only - use from_grade === 'F' like the legacy code did
-  // This catches all F→better grade transitions regardless of change_type
+  // Get improvements only
   const improvements = useMemo(() => {
-    const activeQuarterId = scope === 'active' ? activeQuarter?.id : undefined;
     return gradeHistory
-      .filter(h => h.from_grade === 'F')  // Legacy logic: any transition FROM F
-      .filter(h => !activeQuarterId || h.quarter_id === activeQuarterId)
+      .filter(h => h.change_type === 'improvement')
       .map(h => ({
         ...h,
-        student: allStudents.find(s => s.id === h.student_id),
-        course: allCourses.find(c => c.id === h.course_id)
+        student: students.find(s => s.id === h.student_id),
+        course: courses.find(c => c.id === h.course_id)
       }))
-      // Don't filter out items without student/course - show them anyway with fallback names
+      .filter(h => h.student && h.course)
       .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-  }, [gradeHistory, allStudents, allCourses, activeQuarter?.id, scope]);
-
-  const totalImprovementsAllQuarters = useMemo(() => {
-    return gradeHistory.filter(h => h.from_grade === 'F').length;  // Legacy logic
-  }, [gradeHistory]);
+  }, [gradeHistory, students, courses]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -74,10 +51,10 @@ export default function ProgressTab() {
         mostImprovedCount = count;
       }
     });
-    const mostImprovedCourse = allCourses.find(c => c.id === mostImprovedCourseId);
+    const mostImprovedCourse = courses.find(c => c.id === mostImprovedCourseId);
     
     return { totalImprovements, studentsWithImprovements, mostImprovedCourse };
-  }, [improvements, allCourses]);
+  }, [improvements, courses]);
 
   // Chart data - improvements per class
   const classChartData = useMemo(() => {
@@ -132,13 +109,9 @@ export default function ProgressTab() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .forEach(([courseId, count]) => {
-        const course = allCourses.find(c => c.id === courseId);
+        const course = courses.find(c => c.id === courseId);
         if (course) {
           labels.push(course.code || course.name);
-          data.push(count);
-        } else {
-          // Show even if course not found
-          labels.push('Okänd kurs');
           data.push(count);
         }
       });
@@ -154,69 +127,10 @@ export default function ProgressTab() {
         tension: 0.4
       }]
     };
-  }, [improvements, allCourses]);
+  }, [improvements, courses]);
 
   return (
     <div className="space-y-6">
-      {/* Active quarter context */}
-      {activeQuarter && scope === 'active' && (
-        <div className="card rounded-xl p-4 border border-[#624c9a] bg-[#624c9a]/5">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">📅</span>
-            <div>
-              <div className="font-semibold">Visar utveckling för</div>
-              <div className="text-xl font-bold text-[#624c9a]">{activeQuarter.name}</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Scope toggle */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setScope('active')}
-          className={`px-3 py-1.5 rounded-lg text-sm border transition ${
-            scope === 'active'
-              ? 'bg-[#624c9a] text-white border-[#624c9a]'
-              : 'bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700'
-          }`}
-        >
-          Aktivt kvartal
-        </button>
-        <button
-          type="button"
-          onClick={() => setScope('all')}
-          className={`px-3 py-1.5 rounded-lg text-sm border transition ${
-            scope === 'all'
-              ? 'bg-[#624c9a] text-white border-[#624c9a]'
-              : 'bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700'
-          }`}
-        >
-          Alla kvartal
-        </button>
-      </div>
-
-      {/* Info about which quarters have improvements */}
-      {scope === 'active' && improvements.length === 0 && totalImprovementsAllQuarters > 0 && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <span className="text-xl">💡</span>
-            <div>
-              <p className="font-medium text-amber-800 dark:text-amber-200">
-                Inga förbättringar i {activeQuarter?.name}
-              </p>
-              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                Förbättringar finns i: {quartersWithImprovements.map(q => q.name).join(', ') || 'inga kvartal'}
-              </p>
-              <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
-                Klicka på "Alla kvartal" för att se all historik, eller byt aktivt kvartal under Historik → Kvartal.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="stat-card card rounded-xl p-4 border">
@@ -302,14 +216,14 @@ export default function ProgressTab() {
                     <tr key={improvement.id} className="bg-green-50/50 dark:bg-green-900/10">
                       <td className="px-4 py-3">
                         <div>
-                          <span className="font-medium">{improvement.student?.name || 'Okänd elev'}</span>
+                          <span className="font-medium">{improvement.student?.name}</span>
                           {studentClass && (
                             <span className="text-xs text-gray-500 ml-2">({studentClass.name})</span>
                           )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        {improvement.course?.code || improvement.course?.name || 'Okänd kurs'}
+                        {improvement.course?.code || improvement.course?.name}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className="text-red-500 font-medium">

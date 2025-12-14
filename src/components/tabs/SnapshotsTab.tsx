@@ -1,22 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
-import type { Snapshot } from '@/lib/types';
-
-// Dynamic import for jsPDF to avoid SSR issues
-const loadJsPDF = async () => {
-  const { jsPDF } = await import('jspdf');
-  return jsPDF;
-};
-
-interface AnalysisState {
-  [snapshotId: string]: {
-    isLoading: boolean;
-    analysis: string | null;
-    error: string | null;
-  };
-}
 
 export default function SnapshotsTab() {
   const {
@@ -26,11 +11,7 @@ export default function SnapshotsTab() {
     createSnapshot,
     deleteSnapshot,
     fetchSnapshots,
-    saveSnapshotAnalysis,
-    userCan,
-    classes,
-    courses,
-    gradeHistory
+    userCan
   } = useAppStore();
 
   const [showForm, setShowForm] = useState(false);
@@ -38,7 +19,6 @@ export default function SnapshotsTab() {
   const [formNotes, setFormNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
-  const [analysisState, setAnalysisState] = useState<AnalysisState>({});
 
   const canManage = userCan('manage_quarters');
 
@@ -79,378 +59,81 @@ export default function SnapshotsTab() {
   const getSnapshot = (id: string) => snapshots.find(s => s.id === id);
   const selectedSnapshotData = selectedSnapshot ? getSnapshot(selectedSnapshot) : null;
 
-  // Build analysis data from snapshot
-  const buildAnalysisData = useCallback((snapshot: Snapshot) => {
-    const quarter = quarters.find(q => q.id === snapshot.quarter_id);
-    const snapshotGrades = snapshot.data?.grades || [];
-    const gradedSnapshotGrades = snapshotGrades.filter(g => g.grade !== null);
-    const snapshotStudents = snapshot.data?.students || [];
-    const snapshotCourses = snapshot.data?.courses || [];
-    const snapshotClasses = snapshot.data?.classes || [];
-
-    const studentsWithAnyGrade = new Set(gradedSnapshotGrades.map(g => g.student_id));
-    const totalStudentsAll = snapshotStudents.length;
-    const totalStudentsWithGrades = studentsWithAnyGrade.size;
-    const coveragePct = totalStudentsAll > 0 ? (totalStudentsWithGrades / totalStudentsAll) * 100 : 0;
-
-    // Calculate class breakdown
-    const classBreakdown = snapshotClasses.map(cls => {
-      const classStudentIdsAll = snapshotStudents
-        .filter(s => s.class_id === cls.id)
-        .map(s => s.id);
-      
-      const classStudentIdsWithGrades = classStudentIdsAll.filter(id => studentsWithAnyGrade.has(id));
-      const classGrades = gradedSnapshotGrades.filter(g => classStudentIdsWithGrades.includes(g.student_id));
-      const fCount = classGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
-      const fWarningCount = classGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
-
-      return {
-        className: cls.name,
-        studentCount: classStudentIdsWithGrades.length, // only students with at least 1 grade
-        totalStudentsInClass: classStudentIdsAll.length,
-        fCount,
-        fWarningCount
-      };
-    }).filter(c => c.studentCount > 0);
-
-    // Calculate course breakdown
-    const courseBreakdown = snapshotCourses.map(course => {
-      const courseGrades = gradedSnapshotGrades.filter(g => g.course_id === course.id);
-      const fCount = courseGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
-      const fWarningCount = courseGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
-      const studentsWithGradesInCourse = new Set(courseGrades.map(g => g.student_id)).size;
-
-      return {
-        courseCode: course.code || course.name,
-        courseName: course.name,
-        studentCount: studentsWithGradesInCourse, // coverage in course
-        fCount,
-        fWarningCount
-      };
-    }).filter(c => c.fCount > 0 || c.fWarningCount > 0);
-
-    // Calculate students at risk
-    const studentFCounts: Record<string, number> = {};
-    gradedSnapshotGrades.forEach(g => {
-      if (g.grade === 'F' && g.grade_type !== 'warning') {
-        studentFCounts[g.student_id] = (studentFCounts[g.student_id] || 0) + 1;
-      }
-    });
-
-    const studentsAtRisk = {
-      with1F: Object.values(studentFCounts).filter(c => c === 1).length,
-      with2F: Object.values(studentFCounts).filter(c => c === 2).length,
-      with3PlusF: Object.values(studentFCounts).filter(c => c >= 3).length
-    };
-
-    // Count improvements for this quarter
-    const totalImprovements = gradeHistory.filter(
-      h => h.from_grade === 'F' && h.quarter_id === snapshot.quarter_id
-    ).length;
-
-    const totalFGrades = gradedSnapshotGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
-    const totalFWarnings = gradedSnapshotGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
-    const passRate = gradedSnapshotGrades.length > 0
-      ? ((gradedSnapshotGrades.length - totalFGrades) / gradedSnapshotGrades.length) * 100
-      : 0;
-
-    return {
-      name: snapshot.name,
-      quarterName: quarter?.name || 'Okänt kvartal',
-      snapshotDate: snapshot.created_at 
-        ? new Date(snapshot.created_at).toLocaleDateString('sv-SE')
-        : new Date().toLocaleDateString('sv-SE'),
-      stats: {
-        totalStudents: totalStudentsWithGrades,
-        totalStudentsAll,
-        coveragePct,
-        totalGrades: gradedSnapshotGrades.length,
-        totalFGrades,
-        totalFWarnings,
-        passRate,
-        totalImprovements
-      },
-      classBreakdown,
-      courseBreakdown,
-      studentsAtRisk
-    };
-  }, [quarters, gradeHistory]);
-
-  // Generate AI analysis
-  const generateAnalysis = async (snapshotId: string) => {
-    const snapshot = getSnapshot(snapshotId);
-    if (!snapshot) return;
-    if (snapshot.analysis && snapshot.analysis.trim()) return; // analysis is persisted per snapshot
-
-    setAnalysisState(prev => ({
-      ...prev,
-      [snapshotId]: { isLoading: true, analysis: null, error: null }
-    }));
-
-    try {
-      const snapshotData = buildAnalysisData(snapshot);
-      
-      const response = await fetch('/api/ai/analyze-snapshot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ snapshotData })
-      });
-
-      if (!response.ok) {
-        throw new Error('Kunde inte generera analys');
-      }
-
-      const data = await response.json();
-      if (!data?.analysis) throw new Error('Ingen analys returnerades');
-
-      // Persist analysis so it survives refresh and cannot be generated again
-      await saveSnapshotAnalysis(snapshotId, data.analysis);
-      
-      setAnalysisState(prev => ({
-        ...prev,
-        [snapshotId]: { isLoading: false, analysis: data.analysis, error: null }
-      }));
-    } catch (error) {
-      console.error('Error generating analysis:', error);
-      setAnalysisState(prev => ({
-        ...prev,
-        [snapshotId]: { 
-          isLoading: false, 
-          analysis: null, 
-          error: error instanceof Error ? error.message : 'Ett fel uppstod'
-        }
-      }));
-    }
-  };
-
-  // Download analysis as PDF
-  const downloadAnalysisPDF = async (snapshotId: string) => {
-    const snapshot = getSnapshot(snapshotId);
-    const state = analysisState[snapshotId];
-    if (!snapshot) return;
-
-    const analysisText = state?.analysis || snapshot.analysis;
-    if (!analysisText) return;
-
-    try {
-      const jsPDF = await loadJsPDF();
-      const doc = new jsPDF();
-      
-      const quarter = quarters.find(q => q.id === snapshot.quarter_id);
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 20;
-      const maxWidth = pageWidth - margin * 2;
-      
-      // Header
-      doc.setFillColor(98, 76, 154);
-      doc.rect(0, 0, pageWidth, 35, 'F');
-      
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(18);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Järva Gymnasium', margin, 15);
-      
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'normal');
-      // Intentionally omit the old subtitle line to keep the header clean
-      
-      // Reset text color
-      doc.setTextColor(0, 0, 0);
-      
-      // Snapshot info
-      doc.setFontSize(14);
-      doc.setFont('helvetica', 'bold');
-      doc.text(snapshot.name, margin, 50);
-      
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 100, 100);
-      doc.text(`Kvartal: ${quarter?.name || 'Okänt'}`, margin, 58);
-      doc.text(`Genererad: ${new Date().toLocaleString('sv-SE')}`, margin, 65);
-      
-      // Analysis content
-      doc.setTextColor(0, 0, 0);
-
-      // Render markdown-ish text with basic structure (headings + bullets), and sanitize emojis/unicode.
-      const sanitizeForPdf = (input: string) => {
-        const mapped = input
-          .replace(/🟢/g, '[GRÖN] ')
-          .replace(/🟡/g, '[GUL] ')
-          .replace(/🔴/g, '[RÖD] ')
-          .replace(/[✅⚠️🤖📈📉📌📊📅📥📸]/g, '')
-          .replace(/→/g, '->');
-        // Keep basic Latin + Swedish letters; remove unsupported glyphs that break Helvetica
-        return mapped.replace(/[^\x09\x0A\x0D\x20-\x7E\u00C0-\u017F]/g, '');
-      };
-
-      const lines = sanitizeForPdf(analysisText).split('\n');
-      let yPosition = 80;
-
-      const ensureSpace = (needed: number) => {
-        if (yPosition > doc.internal.pageSize.getHeight() - needed) {
-          doc.addPage();
-          yPosition = 20;
-        }
-      };
-
-      const writeParagraph = (text: string, indent = 0, isBold = false, fontSize = 10) => {
-        const clean = text.replace(/\*\*/g, '').replace(/`/g, '').trim();
-        if (!clean) return;
-        doc.setFont('helvetica', isBold ? 'bold' : 'normal');
-        doc.setFontSize(fontSize);
-        const wrapped = doc.splitTextToSize(clean, maxWidth - indent);
-        wrapped.forEach((w: string) => {
-          ensureSpace(20);
-          doc.text(w, margin + indent, yPosition);
-          yPosition += fontSize <= 10 ? 5 : 6;
-        });
-      };
-
-      for (const rawLine of lines) {
-        const line = rawLine.trimEnd();
-        if (!line.trim()) {
-          yPosition += 3;
-          continue;
-        }
-
-        // Headings
-        if (line.startsWith('### ')) {
-          yPosition += 3;
-          writeParagraph(line.replace(/^###\s+/, ''), 0, true, 13);
-          yPosition += 1;
-          continue;
-        }
-        if (line.startsWith('#### ')) {
-          yPosition += 2;
-          writeParagraph(line.replace(/^####\s+/, ''), 0, true, 11);
-          continue;
-        }
-
-        // Horizontal rule
-        if (/^---+$/.test(line.trim())) {
-          ensureSpace(20);
-          doc.setDrawColor(220, 220, 220);
-          doc.line(margin, yPosition, pageWidth - margin, yPosition);
-          yPosition += 6;
-          continue;
-        }
-
-        // Bullets
-        if (/^\s*-\s+/.test(line)) {
-          const bulletText = line.replace(/^\s*-\s+/, '');
-          ensureSpace(20);
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(10);
-          doc.text('•', margin + 2, yPosition);
-          writeParagraph(bulletText, 8, false, 10);
-          continue;
-        }
-
-        // Normal paragraph
-        writeParagraph(line, 0, false, 10);
-        yPosition += 1;
-      }
-      
-      // Footer on last page
-      const pageCount = doc.internal.pages.length - 1;
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setTextColor(150, 150, 150);
-        doc.text(
-          `Sida ${i} av ${pageCount} | Järva Gymnasium Resultatanalys`,
-          pageWidth / 2,
-          doc.internal.pageSize.getHeight() - 10,
-          { align: 'center' }
-        );
-      }
-      
-      // Save
-      const fileName = `analys-${snapshot.name.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.pdf`;
-      doc.save(fileName);
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      alert('Kunde inte skapa PDF. Försök igen.');
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold">Snapshots</h2>
+        <h2 className="text-xl font-semibold text-[var(--color-text)]">Snapshots</h2>
         {canManage && (
           <button
             onClick={() => setShowForm(true)}
-            className="btn-accent-orange px-4 py-2 rounded-lg flex items-center gap-2"
+            className="btn btn-primary"
           >
-            <span>📸</span> Skapa Snapshot
+            Skapa snapshot
           </button>
         )}
       </div>
 
       {/* Info box */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-        <div className="flex items-start gap-3">
-          <span className="text-2xl">📸</span>
-          <div>
-            <h3 className="font-semibold mb-1">Vad är en Snapshot?</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              En snapshot sparar nuvarande betygsdata för det aktiva kvartalet. 
-              Använd snapshots för att bevara data innan kvartalsbyte eller för att skapa rapporter.
-              Du kan även generera en <strong>AI-analys</strong> av varje snapshot!
-            </p>
-          </div>
-        </div>
+      <div className="bg-[var(--color-surface-sunken)] rounded-lg p-4 border border-[var(--color-border-subtle)]">
+        <h3 className="font-medium text-[var(--color-text)] mb-1">Vad är en snapshot?</h3>
+        <p className="text-sm text-[var(--color-text-secondary)]">
+          En snapshot sparar nuvarande betygsdata för det aktiva kvartalet. 
+          Använd snapshots för att bevara data innan kvartalsbyte eller för att skapa rapporter.
+        </p>
       </div>
 
       {/* Form */}
       {showForm && canManage && (
-        <div className="card rounded-xl p-6 border">
-          <h3 className="font-semibold mb-4">Skapa ny Snapshot</h3>
+        <div className="card p-6">
+          <h3 className="font-medium text-[var(--color-text)] mb-4">Skapa ny snapshot</h3>
           
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-4">
-            <p className="text-sm">
-              <strong>Aktivt kvartal:</strong> {activeQuarter?.name || 'Inget'}
+          <div className="bg-[var(--color-warning-soft)] rounded-lg p-3 mb-4">
+            <p className="text-sm text-[var(--color-text)]">
+              <span className="font-medium">Aktivt kvartal:</span> {activeQuarter?.name || 'Inget'}
             </p>
           </div>
           
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Snapshot-namn</label>
+              <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+                Snapshot-namn
+              </label>
               <input
                 type="text"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
-                className="input w-full px-4 py-2 rounded-lg"
+                className="input"
                 placeholder="t.ex. VT 2024 - Vecka 10"
                 required
               />
             </div>
             
             <div>
-              <label className="block text-sm font-medium mb-2">Anteckningar (valfritt)</label>
+              <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+                Anteckningar (valfritt)
+              </label>
               <textarea
                 value={formNotes}
                 onChange={(e) => setFormNotes(e.target.value)}
-                className="input w-full px-4 py-2 rounded-lg"
+                className="input"
                 rows={3}
                 placeholder="Eventuella noteringar om denna snapshot..."
               />
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-3">
               <button
                 type="submit"
                 disabled={isSubmitting || !activeQuarter}
-                className="btn-accent-orange px-4 py-2 rounded-lg disabled:opacity-50"
+                className="btn btn-primary"
               >
-                {isSubmitting ? 'Skapar...' : '📸 Skapa Snapshot'}
+                {isSubmitting ? 'Skapar...' : 'Skapa snapshot'}
               </button>
               <button
                 type="button"
                 onClick={resetForm}
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                className="btn btn-secondary"
               >
                 Avbryt
               </button>
@@ -463,21 +146,17 @@ export default function SnapshotsTab() {
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
         {snapshots.map(snapshot => {
           const quarter = quarters.find(q => q.id === snapshot.quarter_id);
-          const state = analysisState[snapshot.id];
-          const analysisText = state?.analysis || snapshot.analysis;
           
           return (
             <div
               key={snapshot.id}
-              className="card rounded-xl p-4 border hover:border-[#624c9a] transition"
+              className="card p-4 cursor-pointer hover:border-[var(--color-primary-soft)] transition-colors"
+              onClick={() => setSelectedSnapshot(snapshot.id)}
             >
               <div className="flex justify-between items-start mb-3">
-                <div 
-                  className="cursor-pointer flex-1"
-                  onClick={() => setSelectedSnapshot(snapshot.id)}
-                >
-                  <h3 className="font-bold">{snapshot.name}</h3>
-                  <p className="text-sm text-gray-500">{quarter?.name || 'Okänt kvartal'}</p>
+                <div>
+                  <h3 className="font-medium text-[var(--color-text)]">{snapshot.name}</h3>
+                  <p className="text-sm text-[var(--color-text-muted)]">{quarter?.name || 'Okänt kvartal'}</p>
                 </div>
                 {canManage && (
                   <button
@@ -485,77 +164,38 @@ export default function SnapshotsTab() {
                       e.stopPropagation();
                       handleDelete(snapshot.id);
                     }}
-                    className="p-1.5 text-gray-500 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                    className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)] rounded transition-colors"
                     title="Radera"
                   >
-                    🗑️
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
                   </button>
                 )}
               </div>
               
               {snapshot.stats && (
                 <div className="grid grid-cols-2 gap-2 mb-3">
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2 text-center">
-                    <div className="text-lg font-bold text-red-500">{snapshot.stats.totalFGrades}</div>
-                    <div className="text-xs text-gray-500">F-betyg</div>
+                  <div className="bg-[var(--color-surface-sunken)] rounded-lg p-2 text-center">
+                    <div className="text-lg font-semibold text-[var(--color-danger)]">{snapshot.stats.totalFGrades}</div>
+                    <div className="text-xs text-[var(--color-text-muted)]">F-betyg</div>
                   </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2 text-center">
-                    <div className="text-lg font-bold text-green-500">{snapshot.stats.passRate.toFixed(0)}%</div>
-                    <div className="text-xs text-gray-500">Godkänd</div>
+                  <div className="bg-[var(--color-surface-sunken)] rounded-lg p-2 text-center">
+                    <div className="text-lg font-semibold text-[var(--color-success)]">{snapshot.stats.passRate.toFixed(0)}%</div>
+                    <div className="text-xs text-[var(--color-text-muted)]">Godkänd</div>
                   </div>
                 </div>
               )}
               
-              <div className="text-xs text-gray-400 mb-3">
+              {snapshot.notes && (
+                <p className="text-sm text-[var(--color-text-secondary)] truncate mb-2">{snapshot.notes}</p>
+              )}
+              
+              <div className="text-xs text-[var(--color-text-muted)]">
                 {snapshot.created_at 
                   ? new Date(snapshot.created_at).toLocaleString('sv-SE')
                   : '-'
                 }
-              </div>
-
-              {/* AI Analysis buttons */}
-              <div className="border-t pt-3 mt-3 space-y-2">
-                {!analysisText && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      generateAnalysis(snapshot.id);
-                    }}
-                    disabled={state?.isLoading}
-                    className="w-full px-3 py-2 bg-linear-to-r from-[#624c9a] to-[#e72c81] text-white rounded-lg text-sm font-medium hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {state?.isLoading ? (
-                      <>
-                        <span className="animate-spin">⏳</span>
-                        Genererar analys...
-                      </>
-                    ) : (
-                      <>
-                        <span>🤖</span>
-                        Ta fram analys
-                      </>
-                    )}
-                  </button>
-                )}
-
-                {state?.error && (
-                  <div className="text-xs text-red-500 text-center">
-                    {state.error}
-                  </div>
-                )}
-
-                {analysisText && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      downloadAnalysisPDF(snapshot.id);
-                    }}
-                    className="w-full px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
-                  >
-                    <span>📥</span>
-                    Ladda ner analys (PDF)
-                  </button>
-                )}
               </div>
             </div>
           );
@@ -563,10 +203,13 @@ export default function SnapshotsTab() {
       </div>
 
       {snapshots.length === 0 && (
-        <div className="text-center py-12 text-gray-500">
-          <p className="text-4xl mb-4">📸</p>
-          <p>Inga snapshots skapade än</p>
-          {canManage && <p className="text-sm mt-2">Klicka på knappen ovan för att skapa en snapshot</p>}
+        <div className="text-center py-12">
+          <p className="text-[var(--color-text-muted)] mb-2">Inga snapshots skapade än</p>
+          {canManage && (
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Klicka på knappen ovan för att skapa en snapshot
+            </p>
+          )}
         </div>
       )}
 
@@ -574,114 +217,66 @@ export default function SnapshotsTab() {
       {selectedSnapshotData && (
         <div className="modal-overlay" onClick={() => setSelectedSnapshot(null)}>
           <div 
-            className="modal-content p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+            className="modal-content p-6 max-w-2xl w-full mx-4"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-start mb-6">
               <div>
-                <h2 className="text-2xl font-bold">{selectedSnapshotData.name}</h2>
-                <p className="text-gray-500">
+                <h2 className="text-xl font-semibold text-[var(--color-text)]">{selectedSnapshotData.name}</h2>
+                <p className="text-[var(--color-text-muted)]">
                   {quarters.find(q => q.id === selectedSnapshotData.quarter_id)?.name}
                 </p>
               </div>
               <button
                 onClick={() => setSelectedSnapshot(null)}
-                className="text-gray-400 hover:text-gray-600"
+                className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
             {selectedSnapshotData.notes && (
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6">
-                <p className="text-sm">{selectedSnapshotData.notes}</p>
+              <div className="bg-[var(--color-surface-sunken)] rounded-lg p-4 mb-6">
+                <p className="text-sm text-[var(--color-text-secondary)]">{selectedSnapshotData.notes}</p>
               </div>
             )}
 
             {selectedSnapshotData.stats && (
-              <div className="grid grid-cols-4 gap-4 mb-6">
-                <div className="card rounded-xl p-3 border text-center">
-                  <div className="text-2xl font-bold text-red-500">{selectedSnapshotData.stats.totalFGrades}</div>
-                  <div className="text-xs text-gray-500">F-betyg</div>
+              <div className="grid grid-cols-4 gap-3 mb-6">
+                <div className="bg-[var(--color-surface-sunken)] rounded-lg p-3 text-center">
+                  <div className="text-2xl font-semibold text-[var(--color-danger)]">{selectedSnapshotData.stats.totalFGrades}</div>
+                  <div className="text-xs text-[var(--color-text-muted)]">F-betyg</div>
                 </div>
-                <div className="card rounded-xl p-3 border text-center">
-                  <div className="text-2xl font-bold text-orange-500">{selectedSnapshotData.stats.totalWarnings}</div>
-                  <div className="text-xs text-gray-500">F-varningar</div>
+                <div className="bg-[var(--color-surface-sunken)] rounded-lg p-3 text-center">
+                  <div className="text-2xl font-semibold text-[var(--color-warning)]">{selectedSnapshotData.stats.totalWarnings}</div>
+                  <div className="text-xs text-[var(--color-text-muted)]">F-varningar</div>
                 </div>
-                <div className="card rounded-xl p-3 border text-center">
-                  <div className="text-2xl font-bold text-green-500">{selectedSnapshotData.stats.passRate.toFixed(1)}%</div>
-                  <div className="text-xs text-gray-500">Godkänd</div>
+                <div className="bg-[var(--color-surface-sunken)] rounded-lg p-3 text-center">
+                  <div className="text-2xl font-semibold text-[var(--color-success)]">{selectedSnapshotData.stats.passRate.toFixed(1)}%</div>
+                  <div className="text-xs text-[var(--color-text-muted)]">Godkänd</div>
                 </div>
-                <div className="card rounded-xl p-3 border text-center">
-                  <div className="text-2xl font-bold text-[#624c9a]">{selectedSnapshotData.data?.students?.length || 0}</div>
-                  <div className="text-xs text-gray-500">Elever</div>
-                </div>
-              </div>
-            )}
-
-            {/* AI Analysis section in modal */}
-            {(analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis) && (
-              <div className="mb-6">
-                <h3 className="font-semibold mb-3 flex items-center gap-2">
-                  <span>🤖</span> Analys
-                </h3>
-                <div className="bg-linear-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <pre className="whitespace-pre-wrap text-sm font-sans">
-                      {analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis}
-                    </pre>
-                  </div>
+                <div className="bg-[var(--color-surface-sunken)] rounded-lg p-3 text-center">
+                  <div className="text-2xl font-semibold text-[var(--color-primary)]">{selectedSnapshotData.data?.students?.length || 0}</div>
+                  <div className="text-xs text-[var(--color-text-muted)]">Elever</div>
                 </div>
               </div>
             )}
 
-            <div className="text-sm text-gray-500 mb-4">
+            <div className="text-sm text-[var(--color-text-muted)] mb-6">
               Skapad: {selectedSnapshotData.created_at 
                 ? new Date(selectedSnapshotData.created_at).toLocaleString('sv-SE')
                 : '-'
               }
             </div>
 
-            <div className="flex gap-2">
-              {!(analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis) && (
-                <button
-                  onClick={() => generateAnalysis(selectedSnapshotData.id)}
-                  disabled={analysisState[selectedSnapshotData.id]?.isLoading}
-                  className="px-4 py-2 bg-linear-to-r from-[#624c9a] to-[#e72c81] text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
-                >
-                  {analysisState[selectedSnapshotData.id]?.isLoading ? (
-                    <>
-                      <span className="animate-spin">⏳</span>
-                      Genererar...
-                    </>
-                  ) : (
-                    <>
-                      <span>🤖</span>
-                      Ta fram analys
-                    </>
-                  )}
-                </button>
-              )}
-              
-              {(analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis) && (
-                <button
-                  onClick={() => downloadAnalysisPDF(selectedSnapshotData.id)}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2"
-                >
-                  <span>📥</span>
-                  Ladda ner PDF
-                </button>
-              )}
-              
-              <button
-                onClick={() => setSelectedSnapshot(null)}
-                className="px-6 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
-              >
-                Stäng
-              </button>
-            </div>
+            <button
+              onClick={() => setSelectedSnapshot(null)}
+              className="btn btn-secondary"
+            >
+              Stäng
+            </button>
           </div>
         </div>
       )}

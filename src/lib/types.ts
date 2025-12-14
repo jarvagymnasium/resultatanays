@@ -36,17 +36,11 @@ export const PERMISSIONS: Record<Role['name'], Permission[]> = {
   analyst: ['view_data']
 };
 
-// Admin emails loaded from environment variable
-// Set NEXT_PUBLIC_ADMIN_EMAILS in .env.local (comma-separated)
-const adminEmailsEnv = process.env.NEXT_PUBLIC_ADMIN_EMAILS || '';
-export const PERMANENT_ADMINS: string[] = adminEmailsEnv
-  ? adminEmailsEnv.split(',').map(e => e.trim().toLowerCase())
-  : [
-      // Fallback admins if env var is not set
-      'iman.ehsani@jarvagymnasium.se',
-      'ala.nestani.rad@jarvagymnasium.se',
-      'amir.sajadi@jarvagymnasium.se'
-    ];
+export const PERMANENT_ADMINS = [
+  'iman.ehsani@jarvagymnasium.se',
+  'ala.nestani.rad@jarvagymnasium.se',
+  'amir.sajadi@jarvagymnasium.se'
+];
 
 export interface Class {
   id: string;
@@ -118,7 +112,6 @@ export interface Snapshot {
   name: string;
   quarter_id: string;
   notes?: string;
-  analysis?: string; // persisted AI/analysis text extracted from notes (see store mapping)
   data: {
     grades: Grade[];
     students: Student[];

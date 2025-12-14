@@ -140,7 +140,6 @@ interface AppState {
   
   createSnapshot: (name: string, notes?: string) => Promise<void>;
   deleteSnapshot: (snapshotId: string) => Promise<void>;
-  saveSnapshotAnalysis: (snapshotId: string, analysis: string) => Promise<void>;
   
   reactivateStudent: (id: string) => Promise<void>;
   reactivateCourse: (id: string) => Promise<void>;
@@ -464,66 +463,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   
   fetchSnapshots: async () => {
-    // Legacy schema uses `quarter_snapshots` (not `snapshots`)
-    // Keep the UI working by mapping the legacy rows into our Snapshot shape.
-    // NOTE: We intentionally avoid joins/order-by here because DB schemas vary slightly
-    // (FK relations may not be defined and some installs may not have `snapshot_date`).
-    const { data, error } = await supabase.from('quarter_snapshots').select('*');
-
-    if (error || !data) {
-      console.error('Error fetching snapshots:', error);
-      set({ snapshots: [] });
-      return;
+    const { data, error } = await supabase
+      .from('snapshots')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (!error && data) {
+      set({ snapshots: data });
     }
-
-    const sorted = [...(data as any[])].sort((a, b) => {
-      const aDate = new Date(a.snapshot_date || a.created_at || 0).getTime();
-      const bDate = new Date(b.snapshot_date || b.created_at || 0).getTime();
-      return bDate - aDate;
-    });
-
-    const ANALYSIS_MARKER = '\n\n---\nANALYS\n';
-
-    const mapped = sorted.map((row) => {
-      const rawNotes: string | undefined = row.notes ?? undefined;
-      const match = rawNotes?.match(/📸\s+([^\n]+)/);
-      const extractedName = match?.[1]?.trim();
-      const fallbackName = 'Snapshot';
-
-      // Persisted analysis is stored inside `notes` after a marker so it survives refresh.
-      // We strip it out of `notes` for UI readability and expose it as `analysis`.
-      let notes: string | undefined = rawNotes;
-      let analysis: string | undefined;
-      if (rawNotes && rawNotes.includes(ANALYSIS_MARKER)) {
-        const idx = rawNotes.indexOf(ANALYSIS_MARKER);
-        notes = rawNotes.slice(0, idx).trim() || undefined;
-        analysis = rawNotes.slice(idx + ANALYSIS_MARKER.length).trim() || undefined;
-      }
-
-      return {
-        id: row.id,
-        name: extractedName || fallbackName,
-        quarter_id: row.quarter_id,
-        notes,
-        analysis,
-        data: {
-          grades: row.grades_snapshot || [],
-          students: row.students_snapshot || [],
-          courses: row.courses_snapshot || [],
-          classes: row.classes_snapshot || [],
-        },
-        stats: {
-          totalFGrades: row.total_f_grades || 0,
-          totalWarnings: row.total_f_warnings || 0,
-          passRate: row.pass_rate || 0,
-          averageGrade: 0,
-        },
-        created_at: row.snapshot_date || row.created_at || new Date().toISOString(),
-        created_by: row.created_by || undefined,
-      };
-    });
-
-    set({ snapshots: mapped });
   },
   
   fetchArchivedData: async () => {
@@ -711,29 +658,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   
   setActiveQuarter: async (quarterId) => {
-    if (!quarterId) {
-      throw new Error('Ogiltigt kvartal-id (tomt).');
-    }
-
-    // Deactivate all other quarters (avoid invalid UUID errors by never comparing against '')
-    const { error: deactivateError } = await supabase
-      .from('quarters')
-      .update({ is_active: false })
-      .neq('id', quarterId);
-    if (deactivateError) throw deactivateError;
-
+    // Deactivate all quarters
+    await supabase.from('quarters').update({ is_active: false }).neq('id', '');
     // Activate selected quarter
-    const { error: activateError } = await supabase
-      .from('quarters')
-      .update({ is_active: true })
-      .eq('id', quarterId);
-    if (activateError) throw activateError;
+    await supabase.from('quarters').update({ is_active: true }).eq('id', quarterId);
     
     await get().fetchQuarters();
     clearCache('grades');
     await get().fetchGrades();
-    // ProgressTab is based on grade history; refetch to keep view fresh across quarter switches.
-    await get().fetchGradeHistory();
   },
   
   deleteQuarter: async (quarterId) => {
@@ -746,62 +678,30 @@ export const useAppStore = create<AppState>((set, get) => ({
   createSnapshot: async (name, notes) => {
     const { activeQuarter, grades, students, courses, classes, user } = get();
     if (!activeQuarter) throw new Error('Inget aktivt kvartal');
-
-    // Match legacy schema in Supabase: `quarter_snapshots`
-    const totalStudents = new Set(grades.map((g) => g.student_id)).size;
-    const totalGrades = grades.length;
-    const totalFGrades = grades.filter((g) => g.grade === 'F' && g.grade_type !== 'warning').length;
-    const totalFWarnings = grades.filter((g) => g.grade === 'F' && g.grade_type === 'warning').length;
-    const passRate = totalGrades > 0 ? ((totalGrades - totalFGrades) / totalGrades) * 100 : 0;
-
-    const combinedNotes = `📸 ${name}${notes ? `\n\n${notes}` : ''}\n\n(Manuell snapshot)`;
-
-    await supabase.from('quarter_snapshots').insert({
+    
+    const snapshotData = {
+      name,
       quarter_id: activeQuarter.id,
-      snapshot_date: new Date().toISOString(),
-      total_students: totalStudents,
-      total_grades: totalGrades,
-      total_f_grades: totalFGrades,
-      total_f_warnings: totalFWarnings,
-      pass_rate: passRate,
-      grades_snapshot: grades,
-      students_snapshot: students,
-      courses_snapshot: courses,
-      classes_snapshot: classes,
-      created_by: user?.id,
-      locked: true,
-      notes: combinedNotes,
-    });
-
+      notes,
+      data: { grades, students, courses, classes },
+      stats: {
+        totalFGrades: grades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length,
+        totalWarnings: grades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length,
+        passRate: grades.length > 0 
+          ? (grades.filter(g => g.grade && g.grade !== 'F').length / grades.filter(g => g.grade).length) * 100 
+          : 0,
+        averageGrade: 0 // Calculate if needed
+      },
+      created_by: user?.id
+    };
+    
+    await supabase.from('snapshots').insert(snapshotData);
     await get().fetchSnapshots();
   },
   
   deleteSnapshot: async (snapshotId) => {
-    await supabase.from('quarter_snapshots').delete().eq('id', snapshotId);
+    await supabase.from('snapshots').delete().eq('id', snapshotId);
     await get().fetchSnapshots();
-  },
-
-  saveSnapshotAnalysis: async (snapshotId, analysisText) => {
-    const snapshot = get().snapshots.find((s) => s.id === snapshotId);
-    if (!snapshot) throw new Error('Snapshot hittades inte');
-    if (!analysisText?.trim()) throw new Error('Analys saknas');
-
-    const ANALYSIS_MARKER = '\n\n---\nANALYS\n';
-    const baseNotes = (snapshot.notes || `📸 ${snapshot.name}\n\n(Analys)` ).trim();
-    const newNotes = `${baseNotes}${ANALYSIS_MARKER}${analysisText.trim()}`;
-
-    const { error } = await supabase
-      .from('quarter_snapshots')
-      .update({ notes: newNotes })
-      .eq('id', snapshotId);
-    if (error) throw error;
-
-    // Update local state so UI immediately switches to "Ladda ner" without refetch
-    set({
-      snapshots: get().snapshots.map((s) =>
-        s.id === snapshotId ? { ...s, notes: baseNotes, analysis: analysisText.trim() } : s
-      ),
-    });
   },
   
   reactivateStudent: async (id) => {
