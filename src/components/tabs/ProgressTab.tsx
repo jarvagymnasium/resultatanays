@@ -21,6 +21,11 @@ export default function ProgressTab() {
   const { gradeHistory, students, courses, classes, activeQuarter } = useAppStore();
   const [scope, setScope] = useState<'active' | 'all'>('active');
 
+  // Debug: log what's in gradeHistory
+  console.log('gradeHistory total:', gradeHistory.length, 
+    'improvements:', gradeHistory.filter(h => h.change_type === 'improvement').length,
+    'activeQuarter:', activeQuarter?.id);
+
   // Get improvements only
   const improvements = useMemo(() => {
     const activeQuarterId = scope === 'active' ? activeQuarter?.id : undefined;
