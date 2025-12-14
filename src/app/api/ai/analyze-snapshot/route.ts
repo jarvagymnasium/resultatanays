@@ -64,11 +64,14 @@ Ge 3-5 konkreta åtgärdsförslag baserade på analysen:
 Avsluta med en kort uppmuntrande mening om vägen framåt.
 
 ## Formatering
-- Använd tydliga rubriker med ### för huvudrubriker och #### för underrubriker
-- Använd punktlistor för läsbarhet
-- Inkludera relevanta siffror men överbelasta inte med data
-- Skriv på korrekt svenska
-- Använd emoji sparsamt för visuell tydlighet (🟢🟡🔴 för status, ✅⚠️ för punkter)
+- Skriv rapporten som enkel, PDF-vänlig text i Markdown:
+  - Använd endast rubriker med "###" och "####"
+  - Använd endast punktlistor med "- "
+  - Använd INTE tabeller
+  - Använd INTE LaTeX eller matematiknotation
+  - Använd INTE emojis (de kan bli fel i PDF)
+  - Använd "F -> godkänt" (inte specialpilar)
+  - Håll språket rakt och tydligt
 
 ## Viktigt
 - Nämn ALDRIG enskilda elevers namn i analysen (integritetsskydd)

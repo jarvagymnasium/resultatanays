@@ -26,6 +26,7 @@ export default function SnapshotsTab() {
     createSnapshot,
     deleteSnapshot,
     fetchSnapshots,
+    saveSnapshotAnalysis,
     userCan,
     classes,
     courses,
@@ -161,6 +162,7 @@ export default function SnapshotsTab() {
   const generateAnalysis = async (snapshotId: string) => {
     const snapshot = getSnapshot(snapshotId);
     if (!snapshot) return;
+    if (snapshot.analysis && snapshot.analysis.trim()) return; // analysis is persisted per snapshot
 
     setAnalysisState(prev => ({
       ...prev,
@@ -181,6 +183,10 @@ export default function SnapshotsTab() {
       }
 
       const data = await response.json();
+      if (!data?.analysis) throw new Error('Ingen analys returnerades');
+
+      // Persist analysis so it survives refresh and cannot be generated again
+      await saveSnapshotAnalysis(snapshotId, data.analysis);
       
       setAnalysisState(prev => ({
         ...prev,
@@ -203,7 +209,10 @@ export default function SnapshotsTab() {
   const downloadAnalysisPDF = async (snapshotId: string) => {
     const snapshot = getSnapshot(snapshotId);
     const state = analysisState[snapshotId];
-    if (!snapshot || !state?.analysis) return;
+    if (!snapshot) return;
+
+    const analysisText = state?.analysis || snapshot.analysis;
+    if (!analysisText) return;
 
     try {
       const jsPDF = await loadJsPDF();
@@ -225,7 +234,7 @@ export default function SnapshotsTab() {
       
       doc.setFontSize(12);
       doc.setFont('helvetica', 'normal');
-      doc.text('AI-Analys av Snapshot', margin, 25);
+      // Intentionally omit the old subtitle line to keep the header clean
       
       // Reset text color
       doc.setTextColor(0, 0, 0);
@@ -243,55 +252,85 @@ export default function SnapshotsTab() {
       
       // Analysis content
       doc.setTextColor(0, 0, 0);
-      doc.setFontSize(10);
-      
+
+      // Render markdown-ish text with basic structure (headings + bullets), and sanitize emojis/unicode.
+      const sanitizeForPdf = (input: string) => {
+        const mapped = input
+          .replace(/🟢/g, '[GRÖN] ')
+          .replace(/🟡/g, '[GUL] ')
+          .replace(/🔴/g, '[RÖD] ')
+          .replace(/[✅⚠️🤖📈📉📌📊📅📥📸]/g, '')
+          .replace(/→/g, '->');
+        // Keep basic Latin + Swedish letters; remove unsupported glyphs that break Helvetica
+        return mapped.replace(/[^\x09\x0A\x0D\x20-\x7E\u00C0-\u017F]/g, '');
+      };
+
+      const lines = sanitizeForPdf(analysisText).split('\n');
       let yPosition = 80;
-      const lineHeight = 5;
-      
-      // Convert markdown to plain text and split into lines
-      const plainText = state.analysis
-        .replace(/###\s*/g, '\n')
-        .replace(/##\s*/g, '\n')
-        .replace(/\*\*/g, '')
-        .replace(/\*/g, '')
-        .replace(/`/g, '');
-      
-      const lines = plainText.split('\n');
-      
-      for (const line of lines) {
-        // Check if we need a new page
-        if (yPosition > doc.internal.pageSize.getHeight() - 30) {
+
+      const ensureSpace = (needed: number) => {
+        if (yPosition > doc.internal.pageSize.getHeight() - needed) {
           doc.addPage();
           yPosition = 20;
         }
-        
-        // Handle headers (lines that were ### or ##)
-        if (line.trim().startsWith('DEL ') || line.trim().match(/^[A-ZÅÄÖ]{2,}/)) {
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(12);
-          yPosition += 5;
-        } else {
+      };
+
+      const writeParagraph = (text: string, indent = 0, isBold = false, fontSize = 10) => {
+        const clean = text.replace(/\*\*/g, '').replace(/`/g, '').trim();
+        if (!clean) return;
+        doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+        doc.setFontSize(fontSize);
+        const wrapped = doc.splitTextToSize(clean, maxWidth - indent);
+        wrapped.forEach((w: string) => {
+          ensureSpace(20);
+          doc.text(w, margin + indent, yPosition);
+          yPosition += fontSize <= 10 ? 5 : 6;
+        });
+      };
+
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        if (!line.trim()) {
+          yPosition += 3;
+          continue;
+        }
+
+        // Headings
+        if (line.startsWith('### ')) {
+          yPosition += 3;
+          writeParagraph(line.replace(/^###\s+/, ''), 0, true, 13);
+          yPosition += 1;
+          continue;
+        }
+        if (line.startsWith('#### ')) {
+          yPosition += 2;
+          writeParagraph(line.replace(/^####\s+/, ''), 0, true, 11);
+          continue;
+        }
+
+        // Horizontal rule
+        if (/^---+$/.test(line.trim())) {
+          ensureSpace(20);
+          doc.setDrawColor(220, 220, 220);
+          doc.line(margin, yPosition, pageWidth - margin, yPosition);
+          yPosition += 6;
+          continue;
+        }
+
+        // Bullets
+        if (/^\s*-\s+/.test(line)) {
+          const bulletText = line.replace(/^\s*-\s+/, '');
+          ensureSpace(20);
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(10);
+          doc.text('•', margin + 2, yPosition);
+          writeParagraph(bulletText, 8, false, 10);
+          continue;
         }
-        
-        // Word wrap
-        const wrappedLines = doc.splitTextToSize(line.trim(), maxWidth);
-        
-        for (const wrappedLine of wrappedLines) {
-          if (yPosition > doc.internal.pageSize.getHeight() - 30) {
-            doc.addPage();
-            yPosition = 20;
-          }
-          
-          if (wrappedLine.trim()) {
-            doc.text(wrappedLine, margin, yPosition);
-            yPosition += lineHeight;
-          }
-        }
-        
-        // Add small spacing after each original line
-        yPosition += 2;
+
+        // Normal paragraph
+        writeParagraph(line, 0, false, 10);
+        yPosition += 1;
       }
       
       // Footer on last page
@@ -407,6 +446,7 @@ export default function SnapshotsTab() {
         {snapshots.map(snapshot => {
           const quarter = quarters.find(q => q.id === snapshot.quarter_id);
           const state = analysisState[snapshot.id];
+          const analysisText = state?.analysis || snapshot.analysis;
           
           return (
             <div
@@ -457,7 +497,7 @@ export default function SnapshotsTab() {
 
               {/* AI Analysis buttons */}
               <div className="border-t pt-3 mt-3 space-y-2">
-                {!state?.analysis && (
+                {!analysisText && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -486,7 +526,7 @@ export default function SnapshotsTab() {
                   </div>
                 )}
 
-                {state?.analysis && (
+                {analysisText && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -564,7 +604,7 @@ export default function SnapshotsTab() {
             )}
 
             {/* AI Analysis section in modal */}
-            {analysisState[selectedSnapshotData.id]?.analysis && (
+            {(analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis) && (
               <div className="mb-6">
                 <h3 className="font-semibold mb-3 flex items-center gap-2">
                   <span>🤖</span> AI-Analys
@@ -572,7 +612,7 @@ export default function SnapshotsTab() {
                 <div className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
                   <div className="prose prose-sm dark:prose-invert max-w-none">
                     <pre className="whitespace-pre-wrap text-sm font-sans">
-                      {analysisState[selectedSnapshotData.id].analysis}
+                      {analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis}
                     </pre>
                   </div>
                 </div>
@@ -587,7 +627,7 @@ export default function SnapshotsTab() {
             </div>
 
             <div className="flex gap-2">
-              {!analysisState[selectedSnapshotData.id]?.analysis && (
+              {!(analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis) && (
                 <button
                   onClick={() => generateAnalysis(selectedSnapshotData.id)}
                   disabled={analysisState[selectedSnapshotData.id]?.isLoading}
@@ -607,7 +647,7 @@ export default function SnapshotsTab() {
                 </button>
               )}
               
-              {analysisState[selectedSnapshotData.id]?.analysis && (
+              {(analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis) && (
                 <button
                   onClick={() => downloadAnalysisPDF(selectedSnapshotData.id)}
                   className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2"

@@ -118,6 +118,7 @@ export interface Snapshot {
   name: string;
   quarter_id: string;
   notes?: string;
+  analysis?: string; // persisted AI/analysis text extracted from notes (see store mapping)
   data: {
     grades: Grade[];
     students: Student[];

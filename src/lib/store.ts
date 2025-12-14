@@ -140,6 +140,7 @@ interface AppState {
   
   createSnapshot: (name: string, notes?: string) => Promise<void>;
   deleteSnapshot: (snapshotId: string) => Promise<void>;
+  saveSnapshotAnalysis: (snapshotId: string, analysis: string) => Promise<void>;
   
   reactivateStudent: (id: string) => Promise<void>;
   reactivateCourse: (id: string) => Promise<void>;
@@ -481,17 +482,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       return bDate - aDate;
     });
 
+    const ANALYSIS_MARKER = '\n\n---\nANALYS\n';
+
     const mapped = sorted.map((row) => {
-      const notes: string | undefined = row.notes ?? undefined;
-      const match = notes?.match(/📸\s+([^\n]+)/);
+      const rawNotes: string | undefined = row.notes ?? undefined;
+      const match = rawNotes?.match(/📸\s+([^\n]+)/);
       const extractedName = match?.[1]?.trim();
       const fallbackName = 'Snapshot';
+
+      // Persisted analysis is stored inside `notes` after a marker so it survives refresh.
+      // We strip it out of `notes` for UI readability and expose it as `analysis`.
+      let notes: string | undefined = rawNotes;
+      let analysis: string | undefined;
+      if (rawNotes && rawNotes.includes(ANALYSIS_MARKER)) {
+        const idx = rawNotes.indexOf(ANALYSIS_MARKER);
+        notes = rawNotes.slice(0, idx).trim() || undefined;
+        analysis = rawNotes.slice(idx + ANALYSIS_MARKER.length).trim() || undefined;
+      }
 
       return {
         id: row.id,
         name: extractedName || fallbackName,
         quarter_id: row.quarter_id,
         notes,
+        analysis,
         data: {
           grades: row.grades_snapshot || [],
           students: row.students_snapshot || [],
@@ -765,6 +779,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteSnapshot: async (snapshotId) => {
     await supabase.from('quarter_snapshots').delete().eq('id', snapshotId);
     await get().fetchSnapshots();
+  },
+
+  saveSnapshotAnalysis: async (snapshotId, analysisText) => {
+    const snapshot = get().snapshots.find((s) => s.id === snapshotId);
+    if (!snapshot) throw new Error('Snapshot hittades inte');
+    if (!analysisText?.trim()) throw new Error('Analys saknas');
+
+    const ANALYSIS_MARKER = '\n\n---\nANALYS\n';
+    const baseNotes = (snapshot.notes || `📸 ${snapshot.name}\n\n(Analys)` ).trim();
+    const newNotes = `${baseNotes}${ANALYSIS_MARKER}${analysisText.trim()}`;
+
+    const { error } = await supabase
+      .from('quarter_snapshots')
+      .update({ notes: newNotes })
+      .eq('id', snapshotId);
+    if (error) throw error;
+
+    // Update local state so UI immediately switches to "Ladda ner" without refetch
+    set({
+      snapshots: get().snapshots.map((s) =>
+        s.id === snapshotId ? { ...s, notes: baseNotes, analysis: analysisText.trim() } : s
+      ),
+    });
   },
   
   reactivateStudent: async (id) => {
