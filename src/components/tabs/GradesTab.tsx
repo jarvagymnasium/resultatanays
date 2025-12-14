@@ -3,24 +3,147 @@
 import { useState, useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
 
+interface DuplicateGroup {
+  key: string;
+  student_name: string;
+  course_name: string;
+  quarter_name: string;
+  grades: Array<{
+    id: string;
+    grade: string;
+    grade_type: string;
+    created_at: string;
+  }>;
+}
+
 export default function GradesTab() {
   const {
     students,
     classes,
     courses,
     grades,
+    quarters,
     classCourseMappings,
     setGrade,
     clearGrade,
     userCan,
-    activeQuarter
+    activeQuarter,
+    fetchGrades
   } = useAppStore();
 
   const [selectedClassId, setSelectedClassId] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  
+  // Duplicate management state
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [isLoadingDuplicates, setIsLoadingDuplicates] = useState(false);
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
 
   const canManage = userCan('manage_grades');
+
+  // Find duplicates in current grades data
+  const findDuplicates = () => {
+    setIsLoadingDuplicates(true);
+    
+    const grouped = new Map<string, typeof grades>();
+    
+    // Group grades by student_id + course_id + quarter_id
+    grades.forEach(grade => {
+      const key = `${grade.student_id}-${grade.course_id}-${grade.quarter_id}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, []);
+      }
+      grouped.get(key)!.push(grade);
+    });
+    
+    // Find groups with more than one entry (duplicates)
+    const duplicates: DuplicateGroup[] = [];
+    
+    grouped.forEach((gradeList, key) => {
+      if (gradeList.length > 1) {
+        const firstGrade = gradeList[0];
+        const student = students.find(s => s.id === firstGrade.student_id);
+        const course = courses.find(c => c.id === firstGrade.course_id);
+        const quarter = quarters.find(q => q.id === firstGrade.quarter_id);
+        
+        duplicates.push({
+          key,
+          student_name: student?.name || 'Okänd elev',
+          course_name: course?.name || 'Okänd kurs',
+          quarter_name: quarter?.name || 'Okänt kvartal',
+          grades: gradeList.map(g => ({
+            id: g.id,
+            grade: g.grade || '-',
+            grade_type: g.grade_type,
+            created_at: g.created_at || ''
+          })).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        });
+      }
+    });
+    
+    setDuplicateGroups(duplicates);
+    setIsLoadingDuplicates(false);
+    setShowDuplicates(true);
+  };
+
+  // Delete a specific duplicate grade
+  const deleteDuplicate = async (gradeId: string) => {
+    if (!confirm('Vill du ta bort detta betyg?')) return;
+    
+    try {
+      const response = await fetch(`/api/admin/delete-grade?id=${gradeId}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        // Remove from local state
+        setDuplicateGroups(prev => 
+          prev.map(group => ({
+            ...group,
+            grades: group.grades.filter(g => g.id !== gradeId)
+          })).filter(group => group.grades.length > 1)
+        );
+        // Refresh grades
+        await fetchGrades();
+      } else {
+        alert('Kunde inte ta bort betyget');
+      }
+    } catch (error) {
+      console.error('Error deleting grade:', error);
+      alert('Ett fel uppstod');
+    }
+  };
+
+  // Clean up all duplicates (keep newest)
+  const cleanupAllDuplicates = async () => {
+    if (!confirm(`Vill du ta bort ${duplicateGroups.reduce((sum, g) => sum + g.grades.length - 1, 0)} dubbletter? Den senaste posten för varje kombination behålls.`)) return;
+    
+    setIsCleaningUp(true);
+    
+    try {
+      const response = await fetch('/api/admin/cleanup-duplicates', {
+        method: 'DELETE'
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        alert(`${result.duplicatesRemoved} dubbletter har tagits bort!`);
+        setDuplicateGroups([]);
+        setShowDuplicates(false);
+        await fetchGrades();
+      } else {
+        alert('Kunde inte rensa dubbletter: ' + (result.error || 'Okänt fel'));
+      }
+    } catch (error) {
+      console.error('Error cleaning duplicates:', error);
+      alert('Ett fel uppstod vid rensning');
+    } finally {
+      setIsCleaningUp(false);
+    }
+  };
 
   // Get available courses for selected class
   const availableCourses = useMemo(() => {
@@ -143,12 +266,140 @@ export default function GradesTab() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">Betygsättning</h2>
-        {activeQuarter && (
-          <div className="text-sm text-gray-500">
-            Aktivt kvartal: <span className="font-medium text-[#624c9a]">{activeQuarter.name}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-4">
+          {canManage && (
+            <button
+              onClick={findDuplicates}
+              disabled={isLoadingDuplicates}
+              className="text-sm px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-2"
+            >
+              {isLoadingDuplicates ? (
+                <span className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></span>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              )}
+              Hantera dubbletter
+            </button>
+          )}
+          {activeQuarter && (
+            <div className="text-sm text-gray-500">
+              Aktivt kvartal: <span className="font-medium text-[#624c9a]">{activeQuarter.name}</span>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Duplicates Panel */}
+      {showDuplicates && (
+        <div className="card rounded-xl border overflow-hidden">
+          <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 flex justify-between items-center">
+            <div>
+              <h3 className="font-semibold text-amber-800 dark:text-amber-200">
+                Dubbletthantering
+              </h3>
+              <p className="text-sm text-amber-600 dark:text-amber-300">
+                {duplicateGroups.length === 0 
+                  ? 'Inga dubbletter hittades!' 
+                  : `${duplicateGroups.length} grupper med dubbletter (${duplicateGroups.reduce((sum, g) => sum + g.grades.length - 1, 0)} extra poster)`
+                }
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {duplicateGroups.length > 0 && (
+                <button
+                  onClick={cleanupAllDuplicates}
+                  disabled={isCleaningUp}
+                  className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                >
+                  {isCleaningUp ? (
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  )}
+                  Rensa alla dubbletter
+                </button>
+              )}
+              <button
+                onClick={() => setShowDuplicates(false)}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
+              >
+                Stäng
+              </button>
+            </div>
+          </div>
+          
+          {duplicateGroups.length > 0 && (
+            <div className="max-h-96 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
+              {duplicateGroups.map((group) => (
+                <div key={group.key} className="p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <span className="font-medium">{group.student_name}</span>
+                      <span className="text-gray-500 mx-2">•</span>
+                      <span className="text-gray-600 dark:text-gray-400">{group.course_name}</span>
+                      <span className="text-gray-500 mx-2">•</span>
+                      <span className="text-sm text-gray-500">{group.quarter_name}</span>
+                    </div>
+                    <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-2 py-1 rounded">
+                      {group.grades.length} poster
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {group.grades.map((grade, index) => (
+                      <div 
+                        key={grade.id} 
+                        className={`flex justify-between items-center p-2 rounded-lg ${
+                          index === 0 
+                            ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' 
+                            : 'bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`px-2 py-1 rounded font-bold text-sm ${
+                            grade.grade === 'F' 
+                              ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' 
+                              : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                          }`}>
+                            {grade.grade}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {grade.grade_type === 'warning' ? '(Varning)' : '(Betyg)'}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {grade.created_at ? new Date(grade.created_at).toLocaleString('sv-SE') : '-'}
+                          </span>
+                          {index === 0 && (
+                            <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded">
+                              Behålls
+                            </span>
+                          )}
+                        </div>
+                        
+                        {index > 0 && (
+                          <button
+                            onClick={() => deleteDuplicate(grade.id)}
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 p-1.5 rounded transition-colors"
+                            title="Ta bort denna dubblett"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Selection */}
       <div className="card rounded-xl p-4 border">
