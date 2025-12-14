@@ -60,10 +60,16 @@ export interface Course {
 
 export interface Student {
   id: string;
-  name: string;
+  name: string;  // Mapped from first_name + last_name
+  first_name?: string;
+  last_name?: string;
   class_id: string;
-  archived?: boolean;
+  is_active?: boolean;
+  archived_at?: string;
+  archived_reason?: string;
+  graduated_at?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface ClassCourseMapping {

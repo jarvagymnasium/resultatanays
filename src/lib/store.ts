@@ -552,7 +552,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   
   addStudent: async (name, classId) => {
-    await supabase.from('students').insert({ name, class_id: classId });
+    // Databasen har first_name och last_name, inte name
+    // Dela upp namnet: sista ordet = last_name, resten = first_name
+    const nameParts = name.trim().split(/\s+/);
+    const lastName = nameParts.pop() || '';
+    const firstName = nameParts.join(' ');
+    
+    const { error } = await supabase.from('students').insert({ 
+      first_name: firstName,
+      last_name: lastName,
+      class_id: classId,
+      is_active: true
+    });
+    
+    if (error) {
+      console.error('Error adding student:', error);
+      throw error;
+    }
+    
     clearCache('students');
     await get().fetchStudents();
   },
