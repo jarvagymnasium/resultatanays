@@ -405,17 +405,33 @@ export default function SnapshotsTab() {
           const quarter = quarters.find(q => q.id === snapshot.quarter_id);
           const hasAnalysis = snapshot.analysis || analysisState[snapshot.id]?.analysis;
           
-          // Calculate stats from data if stats is missing
-          const snapshotStats = snapshot.stats || (() => {
+          // Calculate stats from data if stats is missing or incomplete
+          const calculateStats = () => {
+            // First try to use existing stats if valid
+            if (snapshot.stats && typeof snapshot.stats.totalFGrades === 'number' && snapshot.stats.totalFGrades > 0) {
+              return snapshot.stats;
+            }
+            
+            // Otherwise calculate from data
             const grades = snapshot.data?.grades || [];
+            console.log(`Snapshot ${snapshot.name}: data has ${grades.length} grades`);
+            
+            if (grades.length === 0) {
+              return { totalFGrades: 0, totalWarnings: 0, passRate: 0 };
+            }
+            
             const totalFGrades = grades.filter((g: any) => g.grade === 'F' && g.grade_type !== 'warning').length;
             const totalWarnings = grades.filter((g: any) => g.grade === 'F' && g.grade_type === 'warning').length;
             const gradedCount = grades.filter((g: any) => g.grade).length;
             const passRate = gradedCount > 0 
               ? ((gradedCount - totalFGrades) / gradedCount) * 100 
               : 0;
+            
+            console.log(`Snapshot ${snapshot.name}: calculated F=${totalFGrades}, warnings=${totalWarnings}, passRate=${passRate.toFixed(1)}%`);
             return { totalFGrades, totalWarnings, passRate };
-          })();
+          };
+          
+          const snapshotStats = calculateStats();
           
           return (
             <div

@@ -713,7 +713,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       .order('snapshot_date', { ascending: false }); // Sortera på snapshot_date
     
     if (!error && data) {
-      // Parse analysis from notes if present
+      console.log('Raw snapshots from DB:', data.length, 'snapshots');
+      if (data.length > 0) {
+        console.log('First snapshot data field:', data[0].data);
+        console.log('First snapshot stats field:', data[0].stats);
+      }
+      
+      // Parse analysis from notes if present, and ensure data/stats are properly parsed
       const snapshotsWithAnalysis = data.map(s => {
         let analysis = null;
         let notes = s.notes;
@@ -724,7 +730,18 @@ export const useAppStore = create<AppState>((set, get) => ({
           analysis = parts[1];
         }
         
-        return { ...s, notes, analysis };
+        // Ensure data and stats are properly parsed (they might be strings from DB)
+        let parsedData = s.data;
+        let parsedStats = s.stats;
+        
+        if (typeof s.data === 'string') {
+          try { parsedData = JSON.parse(s.data); } catch (e) { console.error('Error parsing snapshot data:', e); }
+        }
+        if (typeof s.stats === 'string') {
+          try { parsedStats = JSON.parse(s.stats); } catch (e) { console.error('Error parsing snapshot stats:', e); }
+        }
+        
+        return { ...s, notes, analysis, data: parsedData, stats: parsedStats };
       });
       
       set({ snapshots: snapshotsWithAnalysis });
