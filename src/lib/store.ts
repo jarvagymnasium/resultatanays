@@ -757,18 +757,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Filtrera betyg för aktivt kvartal
     const quarterGrades = grades.filter(g => g.quarter_id === activeQuarter.id);
     
-    // Använd RÄTT kolumnnamn enligt databasschemat:
-    // student_snapshot, course_snapshot, class_snapshot (JSONB)
+    // Beräkna statistik
+    const totalStudents = students.length;
+    const totalGrades = quarterGrades.length;
+    const totalFGrades = quarterGrades.filter(g => g.grade === 'F' && g.grade_type === 'grade').length;
+    const totalFWarnings = quarterGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
+    const passRate = totalGrades > 0 
+      ? Math.round(((totalGrades - totalFGrades) / totalGrades) * 100) 
+      : 0;
+    
+    // Använd RÄTT kolumnnamn enligt den gamla koden (index.html):
+    // grades_snapshot, students_snapshot, courses_snapshot, classes_snapshot
     const snapshotData = {
-      name,
       quarter_id: activeQuarter.id,
-      notes,
-      student_snapshot: students,
-      course_snapshot: courses,
-      class_snapshot: classes,
-      // Grades lagras inte separat - de hämtas via quarter_id
+      snapshot_date: new Date().toISOString(),
+      total_students: totalStudents,
+      total_grades: totalGrades,
+      total_f_grades: totalFGrades,
+      total_f_warnings: totalFWarnings,
+      pass_rate: passRate,
+      grades_snapshot: quarterGrades,
+      students_snapshot: students,
+      courses_snapshot: courses,
+      classes_snapshot: classes,
       created_by: user?.id,
-      snapshot_date: new Date().toISOString()
+      locked: true,
+      notes: `📸 ${name}${notes ? `\n\n${notes}` : ''}\n\n(Manuell snapshot)`
     };
     
     const { error } = await supabase.from('quarter_snapshots').insert(snapshotData);
@@ -789,46 +803,62 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Använd rätt tabellnamn: quarter_snapshots
     const { data, error } = await supabase
       .from('quarter_snapshots')
-      .select('*')
+      .select('*, quarters(name)')
       .order('snapshot_date', { ascending: false });
     
     if (!error && data) {
       console.log('Raw snapshots from DB:', data.length, 'snapshots');
-      if (data.length > 0) {
-        console.log('First snapshot columns:', Object.keys(data[0]));
-        console.log('First snapshot student_snapshot:', data[0].student_snapshot ? 'has data' : 'empty');
-      }
       
       // Mappa från databas-kolumnnamn till vår interna struktur
+      // Databasen använder: grades_snapshot, students_snapshot, courses_snapshot, classes_snapshot
       const snapshotsWithAnalysis = data.map(s => {
         let analysis = null;
-        let notes = s.notes;
+        let notes = s.notes || '';
         
-        if (s.notes && s.notes.includes('---\nANALYS\n')) {
-          const parts = s.notes.split('---\nANALYS\n');
+        if (notes.includes('---\nANALYS\n')) {
+          const parts = notes.split('---\nANALYS\n');
           notes = parts[0].trim();
           analysis = parts[1];
         }
         
-        // Mappa databas-kolumner till vår Snapshot-typ
-        // Databasen har: student_snapshot, course_snapshot, class_snapshot (JSONB)
-        // Vi mappar till: data.students, data.courses, data.classes
+        // Extrahera namn från notes om det finns (format: "📸 Namn\n\n...")
+        let name = s.name;
+        if (!name && notes.startsWith('📸 ')) {
+          const nameMatch = notes.match(/📸 ([^\n]+)/);
+          if (nameMatch) {
+            name = nameMatch[1];
+          }
+        }
+        if (!name && s.quarters?.name) {
+          name = `Snapshot ${s.quarters.name}`;
+        }
+        if (!name) {
+          name = `Snapshot ${new Date(s.snapshot_date).toLocaleDateString('sv-SE')}`;
+        }
+        
         const mappedSnapshot = {
           id: s.id,
-          name: s.name,
+          name,
           quarter_id: s.quarter_id,
           notes,
           analysis,
           created_at: s.created_at || s.snapshot_date,
-          created_by: s.created_by || s.teacher_id,
+          created_by: s.created_by,
           // Mappa snapshot-kolumnerna till vår data-struktur
+          // Databasen har: students_snapshot, courses_snapshot, classes_snapshot, grades_snapshot
           data: {
-            students: s.student_snapshot || [],
-            courses: s.course_snapshot || [],
-            classes: s.class_snapshot || [],
-            grades: [] // Betyg hämtas via quarter_id, inte sparade i snapshot
+            students: s.students_snapshot || [],
+            courses: s.courses_snapshot || [],
+            classes: s.classes_snapshot || [],
+            grades: s.grades_snapshot || []
           },
-          stats: null // Beräknas dynamiskt
+          stats: {
+            totalFGrades: s.total_f_grades || 0,
+            totalWarnings: s.total_f_warnings || 0,
+            passRate: s.pass_rate || 0,
+            totalStudents: s.total_students || 0,
+            totalGrades: s.total_grades || 0
+          }
         };
         
         return mappedSnapshot;
