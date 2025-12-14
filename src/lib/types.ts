@@ -36,11 +36,12 @@ export const PERMISSIONS: Record<Role['name'], Permission[]> = {
   analyst: ['view_data']
 };
 
-export const PERMANENT_ADMINS = [
-  'iman.ehsani@jarvagymnasium.se',
-  'ala.nestani.rad@jarvagymnasium.se',
-  'amir.sajadi@jarvagymnasium.se'
-];
+// Admin emails are loaded from environment variables for security
+// Set NEXT_PUBLIC_ADMIN_EMAILS in .env.local (comma-separated)
+export const PERMANENT_ADMINS: string[] = 
+  typeof window !== 'undefined' && process.env.NEXT_PUBLIC_ADMIN_EMAILS
+    ? process.env.NEXT_PUBLIC_ADMIN_EMAILS.split(',').map(e => e.trim().toLowerCase())
+    : [];
 
 export interface Class {
   id: string;
