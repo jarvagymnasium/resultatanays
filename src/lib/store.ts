@@ -673,22 +673,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activeQuarter, grades, students, courses, classes, user } = get();
     if (!activeQuarter) throw new Error('Inget aktivt kvartal');
     
-    // Använd rätt tabellnamn: quarter_snapshots
+    // Filtrera betyg för aktivt kvartal
+    const quarterGrades = grades.filter(g => g.quarter_id === activeQuarter.id);
+    
+    // Använd RÄTT kolumnnamn enligt databasschemat:
+    // student_snapshot, course_snapshot, class_snapshot (JSONB)
     const snapshotData = {
       name,
       quarter_id: activeQuarter.id,
       notes,
-      data: { grades, students, courses, classes },
-      stats: {
-        totalFGrades: grades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length,
-        totalWarnings: grades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length,
-        passRate: grades.length > 0 
-          ? (grades.filter(g => g.grade && g.grade !== 'F').length / grades.filter(g => g.grade).length) * 100 
-          : 0,
-        averageGrade: 0
-      },
+      student_snapshot: students,
+      course_snapshot: courses,
+      class_snapshot: classes,
+      // Grades lagras inte separat - de hämtas via quarter_id
       created_by: user?.id,
-      snapshot_date: new Date().toISOString() // Viktigt för sortering
+      snapshot_date: new Date().toISOString()
     };
     
     const { error } = await supabase.from('quarter_snapshots').insert(snapshotData);
@@ -710,16 +709,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { data, error } = await supabase
       .from('quarter_snapshots')
       .select('*')
-      .order('snapshot_date', { ascending: false }); // Sortera på snapshot_date
+      .order('snapshot_date', { ascending: false });
     
     if (!error && data) {
       console.log('Raw snapshots from DB:', data.length, 'snapshots');
       if (data.length > 0) {
-        console.log('First snapshot data field:', data[0].data);
-        console.log('First snapshot stats field:', data[0].stats);
+        console.log('First snapshot columns:', Object.keys(data[0]));
+        console.log('First snapshot student_snapshot:', data[0].student_snapshot ? 'has data' : 'empty');
       }
       
-      // Parse analysis from notes if present, and ensure data/stats are properly parsed
+      // Mappa från databas-kolumnnamn till vår interna struktur
       const snapshotsWithAnalysis = data.map(s => {
         let analysis = null;
         let notes = s.notes;
@@ -730,18 +729,28 @@ export const useAppStore = create<AppState>((set, get) => ({
           analysis = parts[1];
         }
         
-        // Ensure data and stats are properly parsed (they might be strings from DB)
-        let parsedData = s.data;
-        let parsedStats = s.stats;
+        // Mappa databas-kolumner till vår Snapshot-typ
+        // Databasen har: student_snapshot, course_snapshot, class_snapshot (JSONB)
+        // Vi mappar till: data.students, data.courses, data.classes
+        const mappedSnapshot = {
+          id: s.id,
+          name: s.name,
+          quarter_id: s.quarter_id,
+          notes,
+          analysis,
+          created_at: s.created_at || s.snapshot_date,
+          created_by: s.created_by || s.teacher_id,
+          // Mappa snapshot-kolumnerna till vår data-struktur
+          data: {
+            students: s.student_snapshot || [],
+            courses: s.course_snapshot || [],
+            classes: s.class_snapshot || [],
+            grades: [] // Betyg hämtas via quarter_id, inte sparade i snapshot
+          },
+          stats: null // Beräknas dynamiskt
+        };
         
-        if (typeof s.data === 'string') {
-          try { parsedData = JSON.parse(s.data); } catch (e) { console.error('Error parsing snapshot data:', e); }
-        }
-        if (typeof s.stats === 'string') {
-          try { parsedStats = JSON.parse(s.stats); } catch (e) { console.error('Error parsing snapshot stats:', e); }
-        }
-        
-        return { ...s, notes, analysis, data: parsedData, stats: parsedStats };
+        return mappedSnapshot;
       });
       
       set({ snapshots: snapshotsWithAnalysis });

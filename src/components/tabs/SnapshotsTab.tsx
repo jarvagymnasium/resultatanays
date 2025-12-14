@@ -81,22 +81,23 @@ export default function SnapshotsTab() {
   const getSnapshot = (id: string) => snapshots.find(s => s.id === id);
   const selectedSnapshotData = selectedSnapshot ? getSnapshot(selectedSnapshot) : null;
 
-  // Build analysis data logic (Restored from previous working version)
-  // Nu med fallback till aktuella betyg om snapshot.data är tom
+  // Build analysis data logic
+  // Betyg hämtas ALLTID via quarter_id (de sparas inte i snapshot enligt DB-schemat)
+  // Elever/kurser/klasser kan komma från snapshot eller aktuella data
   const buildAnalysisData = useCallback((snapshot: Snapshot) => {
     const quarter = quarters.find(q => q.id === snapshot.quarter_id);
     
-    // Använd sparad data om den finns, annars fallback till aktuella data för kvartalet
-    const hasSavedData = snapshot.data?.grades && snapshot.data.grades.length > 0;
-    
-    const snapshotGrades = hasSavedData 
-      ? snapshot.data.grades 
-      : grades.filter(g => g.quarter_id === snapshot.quarter_id);
+    // Betyg hämtas ALLTID från grades-tabellen filtrerat på quarter_id
+    const snapshotGrades = grades.filter(g => g.quarter_id === snapshot.quarter_id);
     const gradedSnapshotGrades = snapshotGrades.filter(g => g.grade !== null);
     
-    const snapshotStudents = hasSavedData ? (snapshot.data?.students || []) : students;
-    const snapshotCourses = hasSavedData ? (snapshot.data?.courses || []) : courses;
-    const snapshotClasses = hasSavedData ? (snapshot.data?.classes || []) : classes;
+    // Elever/kurser/klasser - använd snapshot-data om den finns, annars aktuella
+    const snapshotStudents = (snapshot.data?.students && snapshot.data.students.length > 0) 
+      ? snapshot.data.students : students;
+    const snapshotCourses = (snapshot.data?.courses && snapshot.data.courses.length > 0) 
+      ? snapshot.data.courses : courses;
+    const snapshotClasses = (snapshot.data?.classes && snapshot.data.classes.length > 0) 
+      ? snapshot.data.classes : classes;
 
     const studentsWithAnyGrade = new Set(gradedSnapshotGrades.map(g => g.student_id));
     const totalStudentsAll = snapshotStudents.length;
@@ -417,40 +418,23 @@ export default function SnapshotsTab() {
           const quarter = quarters.find(q => q.id === snapshot.quarter_id);
           const hasAnalysis = snapshot.analysis || analysisState[snapshot.id]?.analysis;
           
-          // Calculate stats - prioritera: 1) sparad stats, 2) sparad data, 3) aktuella betyg för kvartalet
+          // Calculate stats - ALLTID från grades-tabellen via quarter_id
+          // (Betyg sparas INTE i quarter_snapshots enligt DB-schemat)
           const calculateStats = () => {
-            // 1. First try to use existing stats if valid
-            if (snapshot.stats && typeof snapshot.stats.totalFGrades === 'number' && snapshot.stats.totalFGrades > 0) {
-              return snapshot.stats;
-            }
-            
-            // 2. Try to calculate from snapshot's saved data
-            const savedGrades = snapshot.data?.grades || [];
-            if (savedGrades.length > 0) {
-              const totalFGrades = savedGrades.filter((g: any) => g.grade === 'F' && g.grade_type !== 'warning').length;
-              const totalWarnings = savedGrades.filter((g: any) => g.grade === 'F' && g.grade_type === 'warning').length;
-              const gradedCount = savedGrades.filter((g: any) => g.grade).length;
-              const passRate = gradedCount > 0 
-                ? ((gradedCount - totalFGrades) / gradedCount) * 100 
-                : 0;
-              return { totalFGrades, totalWarnings, passRate };
-            }
-            
-            // 3. FALLBACK: Beräkna från aktuella betyg baserat på snapshot's quarter_id
-            // Detta fungerar för gamla snapshots som inte har sparad data
             const quarterGrades = grades.filter(g => g.quarter_id === snapshot.quarter_id);
-            if (quarterGrades.length > 0) {
-              const totalFGrades = quarterGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
-              const totalWarnings = quarterGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
-              const gradedCount = quarterGrades.filter(g => g.grade).length;
-              const passRate = gradedCount > 0 
-                ? ((gradedCount - totalFGrades) / gradedCount) * 100 
-                : 0;
-              console.log(`Snapshot ${snapshot.name}: using LIVE data for quarter ${snapshot.quarter_id}, F=${totalFGrades}, grades=${quarterGrades.length}`);
-              return { totalFGrades, totalWarnings, passRate };
+            
+            if (quarterGrades.length === 0) {
+              return { totalFGrades: 0, totalWarnings: 0, passRate: 0 };
             }
             
-            return { totalFGrades: 0, totalWarnings: 0, passRate: 0 };
+            const totalFGrades = quarterGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
+            const totalWarnings = quarterGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
+            const gradedCount = quarterGrades.filter(g => g.grade).length;
+            const passRate = gradedCount > 0 
+              ? ((gradedCount - totalFGrades) / gradedCount) * 100 
+              : 0;
+            
+            return { totalFGrades, totalWarnings, passRate };
           };
           
           const snapshotStats = calculateStats();

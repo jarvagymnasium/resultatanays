@@ -113,8 +113,10 @@ export interface Snapshot {
   quarter_id: string;
   notes?: string;
   analysis?: string | null;
+  // Data mappas från DB-kolumner: student_snapshot, course_snapshot, class_snapshot
+  // Betyg sparas INTE i snapshot - de hämtas via quarter_id från grades-tabellen
   data: {
-    grades: Grade[];
+    grades: Grade[];  // Alltid tom från DB, fylls via quarter_id
     students: Student[];
     courses: Course[];
     classes: Class[];
@@ -123,8 +125,8 @@ export interface Snapshot {
     totalFGrades: number;
     totalWarnings: number;
     passRate: number;
-    averageGrade: number;
-  };
+    averageGrade?: number;
+  } | null;
   created_at: string;
   created_by?: string;
 }
