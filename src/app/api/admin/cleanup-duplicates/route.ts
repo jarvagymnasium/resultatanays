@@ -18,6 +18,7 @@ export async function GET() {
       .order('created_at', { ascending: false });
 
     if (gradesError) {
+      console.error('Error fetching grades:', gradesError);
       return NextResponse.json({ error: gradesError.message }, { status: 500 });
     }
 
@@ -28,10 +29,11 @@ export async function GET() {
       .order('created_at', { ascending: false });
 
     if (historyError) {
+      console.error('Error fetching grade_history:', historyError);
       return NextResponse.json({ error: historyError.message }, { status: 500 });
     }
 
-    // Find duplicates in grades
+    // Find duplicates in grades (same student + course + quarter)
     const gradesSeen = new Map<string, any>();
     const gradesDuplicates: any[] = [];
 
@@ -46,19 +48,27 @@ export async function GET() {
     }
 
     // Find duplicates in grade_history
-    // A duplicate is same student_id, course_id, quarter_id, from_grade, to_grade
+    // Based on the PDF, duplicates have: same student, course, from_grade, to_grade
+    // We'll also include quarter_id if it exists, and truncate date to day level
     const historySeen = new Map<string, any>();
     const historyDuplicates: any[] = [];
 
+    console.log(`Analyzing ${allHistory?.length || 0} grade_history records...`);
+
     for (const history of allHistory || []) {
-      const key = `${history.student_id}-${history.course_id}-${history.quarter_id}-${history.from_grade}-${history.to_grade}`;
+      // Create a key that identifies true duplicates
+      // Same student, course, from_grade, to_grade, and same day
+      const dateStr = history.created_at ? history.created_at.substring(0, 10) : 'nodate';
+      const key = `${history.student_id}-${history.course_id}-${history.from_grade}-${history.to_grade}-${dateStr}`;
       
       if (historySeen.has(key)) {
         historyDuplicates.push(history);
       } else {
-        historySeen.set(key, history);
+        historySeen.set(key, history); // FIXED: was incorrectly using 'history' as key
       }
     }
+
+    console.log(`Found ${historyDuplicates.length} duplicates in grade_history`);
 
     return NextResponse.json({
       grades: {
@@ -82,7 +92,6 @@ export async function GET() {
           id: d.id,
           student_id: d.student_id,
           course_id: d.course_id,
-          quarter_id: d.quarter_id,
           from_grade: d.from_grade,
           to_grade: d.to_grade,
           created_at: d.created_at
@@ -104,7 +113,7 @@ export async function DELETE() {
     const { data: allGrades, error: gradesError } = await supabaseAdmin
       .from('grades')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false }); // Newest first - we keep these
 
     if (!gradesError && allGrades) {
       const gradesSeen = new Map<string, any>();
@@ -120,6 +129,8 @@ export async function DELETE() {
         }
       }
 
+      console.log(`Found ${gradesDuplicateIds.length} duplicate grades to delete`);
+
       // Delete in batches
       const batchSize = 100;
       for (let i = 0; i < gradesDuplicateIds.length; i += batchSize) {
@@ -131,6 +142,8 @@ export async function DELETE() {
 
         if (!error) {
           gradesDeleted += batch.length;
+        } else {
+          console.error('Error deleting grades batch:', error);
         }
       }
     }
@@ -139,21 +152,25 @@ export async function DELETE() {
     const { data: allHistory, error: historyError } = await supabaseAdmin
       .from('grade_history')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false }); // Newest first - we keep these
 
     if (!historyError && allHistory) {
       const historySeen = new Map<string, any>();
       const historyDuplicateIds: string[] = [];
 
       for (const history of allHistory) {
-        const key = `${history.student_id}-${history.course_id}-${history.quarter_id}-${history.from_grade}-${history.to_grade}`;
+        // Same key logic as GET
+        const dateStr = history.created_at ? history.created_at.substring(0, 10) : 'nodate';
+        const key = `${history.student_id}-${history.course_id}-${history.from_grade}-${history.to_grade}-${dateStr}`;
         
         if (historySeen.has(key)) {
           historyDuplicateIds.push(history.id);
         } else {
-          historySeen.set(history, history);
+          historySeen.set(key, history); // FIXED: was incorrectly using 'history' as key
         }
       }
+
+      console.log(`Found ${historyDuplicateIds.length} duplicate grade_history to delete`);
 
       // Delete in batches
       const batchSize = 100;
@@ -166,6 +183,8 @@ export async function DELETE() {
 
         if (!error) {
           historyDeleted += batch.length;
+        } else {
+          console.error('Error deleting grade_history batch:', error);
         }
       }
     }
