@@ -5,10 +5,10 @@ import { createPortal } from 'react-dom';
 import { useAppStore } from '@/lib/store';
 import type { TabId } from '@/lib/types';
 
-// Main navigation tabs (excluding Register items)
-const MAIN_TABS: { id: TabId; label: string; permission?: string }[] = [
-  { id: 'warnings', label: 'F-varningar' },
-  { id: 'progress', label: 'Utveckling' },
+// Main navigation tabs
+const MAIN_TABS: { id: TabId; label: string; icon?: string; permission?: string }[] = [
+  { id: 'warnings', label: 'Overview', icon: '⚡' },
+  { id: 'progress', label: 'Utveckling', icon: '📈' },
   { id: 'grades', label: 'Betyg', permission: 'manage_grades' },
   { id: 'quarters', label: 'Kvartal', permission: 'manage_quarters' },
   { id: 'archive', label: 'Arkiv', permission: 'manage_students' },
@@ -16,7 +16,6 @@ const MAIN_TABS: { id: TabId; label: string; permission?: string }[] = [
   { id: 'snapshots', label: 'Snapshots' },
 ];
 
-// Register dropdown items
 const REGISTER_TABS: { id: TabId; label: string; permission?: string }[] = [
   { id: 'students', label: 'Elever', permission: 'manage_students' },
   { id: 'courses', label: 'Kurser', permission: 'manage_courses' },
@@ -38,13 +37,13 @@ export default function Header() {
   const [showRegisterMenu, setShowRegisterMenu] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
   const [mounted, setMounted] = useState(false);
+  
   const registerBtnRef = useRef<HTMLButtonElement>(null);
   const registerMenuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => { setMounted(true); }, []);
 
+  // Close menus on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (registerMenuRef.current && !registerMenuRef.current.contains(event.target as Node) &&
@@ -61,7 +60,7 @@ export default function Header() {
       const rect = registerBtnRef.current.getBoundingClientRect();
       setDropdownPos({
         top: rect.bottom + 8,
-        left: Math.max(10, rect.left + (rect.width / 2) - 80)
+        left: rect.left
       });
     }
     setShowRegisterMenu(!showRegisterMenu);
@@ -69,178 +68,156 @@ export default function Header() {
 
   const getUserInitials = (email: string) => {
     const parts = email.split('@')[0].split('.');
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
     return email.substring(0, 2).toUpperCase();
   };
 
-  const getRoleLabel = () => {
-    switch (userRole) {
-      case 'admin': return 'Admin';
-      case 'teacher': return 'Lärare';
-      default: return 'Analytiker';
-    }
-  };
-
-  const visibleMainTabs = MAIN_TABS.filter(tab => {
-    if (!tab.permission) return true;
-    return userCan(tab.permission as 'view_data' | 'manage_classes' | 'manage_courses' | 'manage_students' | 'manage_grades' | 'manage_quarters');
-  });
-
-  const visibleRegisterTabs = REGISTER_TABS.filter(tab => {
-    if (!tab.permission) return true;
-    return userCan(tab.permission as 'view_data' | 'manage_classes' | 'manage_courses' | 'manage_students' | 'manage_grades' | 'manage_quarters');
-  });
-
+  const visibleMainTabs = MAIN_TABS.filter(tab => !tab.permission || userCan(tab.permission as any));
+  const visibleRegisterTabs = REGISTER_TABS.filter(tab => !tab.permission || userCan(tab.permission as any));
   const isRegisterTabActive = REGISTER_TABS.some(tab => tab.id === activeTab);
-  const showRegister = visibleRegisterTabs.length > 0;
 
   return (
     <header className="header-wrapper">
       <div className="header-content">
-        {/* Top bar */}
-        <div className="header-top">
-          {/* Logo */}
-          <div className="header-logo">
-            <div className="logo-text">
-              <span className="logo-school">Järva Gymnasium</span>
-              <span className="logo-app">Resultatanalys</span>
+        {/* Left: Brand & Main Nav */}
+        <div className="flex items-center gap-8">
+          {/* Brand */}
+          <div className="flex items-center gap-3 select-none">
+            <div className="w-8 h-8 rounded-lg bg-[var(--color-primary)] flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-indigo-500/30">
+              J
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[0.95rem] font-bold tracking-tight text-[var(--text-primary)] leading-tight">
+                Resultatanalys
+              </span>
+              <span className="text-[0.7rem] font-medium text-[var(--text-tertiary)] tracking-wide uppercase">
+                Järva Gymnasium
+              </span>
             </div>
           </div>
 
-          {/* Right side */}
-          <div className="header-actions">
-            {/* Quarter badge */}
-            {activeQuarter && (
-              <div className="quarter-badge">
-                <span className="quarter-dot"></span>
-                <span className="quarter-name">{activeQuarter.name}</span>
-              </div>
-            )}
+          {/* Separator */}
+          <div className="h-6 w-px bg-[var(--border-subtle)] hidden md:block"></div>
 
-            {/* User menu */}
-            <div className="relative">
-              <button 
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                className="user-btn"
+          {/* Navigation - Desktop */}
+          <nav className="hidden md:flex items-center gap-1">
+            {visibleMainTabs.slice(0, 3).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`nav-tab ${activeTab === tab.id ? 'nav-tab-active' : ''}`}
               >
-                <div className="user-avatar-wrapper">
-                  <div className="user-avatar-inner">
-                    {user?.email ? getUserInitials(user.email) : '?'}
-                  </div>
-                </div>
-                <div className="user-info">
-                  <span className="user-name">{user?.email?.split('@')[0] || 'Användare'}</span>
-                  <span className="user-role">{getRoleLabel()}</span>
-                </div>
-                <svg className={`user-chevron ${showUserMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {tab.icon && <span className="mr-1.5 opacity-70">{tab.icon}</span>}
+                {tab.label}
+              </button>
+            ))}
+
+            {/* Register Dropdown Trigger */}
+            {visibleRegisterTabs.length > 0 && (
+              <button
+                ref={registerBtnRef}
+                onClick={handleRegisterClick}
+                className={`nav-tab flex items-center gap-1 ${isRegisterTabActive ? 'nav-tab-active' : ''}`}
+              >
+                Register
+                <svg className={`w-3.5 h-3.5 transition-transform ${showRegisterMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
-
-              {/* Dropdown menu */}
-              {showUserMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)}></div>
-                  <div className="user-dropdown">
-                    <div className="user-dropdown-header">
-                      <div className="w-9 h-9 rounded-lg bg-[var(--color-primary)] flex items-center justify-center text-white text-sm font-semibold">
-                        {user?.email ? getUserInitials(user.email) : '?'}
-                      </div>
-                      <div>
-                        <div className="font-medium text-[var(--color-text)] text-sm">{user?.email?.split('@')[0]}</div>
-                        <div className="text-xs text-[var(--color-text-muted)] truncate max-w-[160px]">{user?.email}</div>
-                      </div>
-                    </div>
-                    <div className="user-dropdown-divider"></div>
-                    <button onClick={logout} className="user-dropdown-item user-dropdown-logout">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                      </svg>
-                      Logga ut
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Navigation tabs */}
-        <nav className="header-nav">
-          <div className="nav-track">
-            {/* First two main tabs */}
-            {visibleMainTabs.slice(0, 2).map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`nav-tab ${activeTab === tab.id ? 'nav-tab-active' : ''}`}
-              >
-                <span className="nav-tab-label">{tab.label}</span>
-                {activeTab === tab.id && <span className="nav-tab-indicator"></span>}
-              </button>
-            ))}
-
-            {/* Register dropdown */}
-            {showRegister && (
-              <>
-                <button
-                  ref={registerBtnRef}
-                  onClick={handleRegisterClick}
-                  className={`nav-tab nav-tab-dropdown ${isRegisterTabActive ? 'nav-tab-active' : ''}`}
-                >
-                  <span className="nav-tab-label">Register</span>
-                  <svg 
-                    className={`w-3 h-3 transition-transform duration-150 ${showRegisterMenu ? 'rotate-180' : ''}`} 
-                    fill="none" 
-                    stroke="currentColor" 
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                  {isRegisterTabActive && <span className="nav-tab-indicator"></span>}
-                </button>
-
-                {/* Register dropdown menu */}
-                {showRegisterMenu && mounted && createPortal(
-                  <div 
-                    ref={registerMenuRef}
-                    className="register-dropdown"
-                    style={{ top: dropdownPos.top, left: dropdownPos.left }}
-                  >
-                    {visibleRegisterTabs.map((tab) => (
-                      <button
-                        key={tab.id}
-                        onClick={() => {
-                          setActiveTab(tab.id);
-                          setShowRegisterMenu(false);
-                        }}
-                        className={`register-dropdown-item ${activeTab === tab.id ? 'register-dropdown-item-active' : ''}`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>,
-                  document.body
-                )}
-              </>
             )}
 
-            {/* Remaining main tabs */}
-            {visibleMainTabs.slice(2).map((tab) => (
+            {visibleMainTabs.slice(3).map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`nav-tab ${activeTab === tab.id ? 'nav-tab-active' : ''}`}
               >
-                <span className="nav-tab-label">{tab.label}</span>
-                {activeTab === tab.id && <span className="nav-tab-indicator"></span>}
+                {tab.label}
               </button>
             ))}
+          </nav>
+        </div>
+
+        {/* Right: Actions & Profile */}
+        <div className="flex items-center gap-4">
+          {/* Quarter Indicator - Pill Style */}
+          {activeQuarter && (
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--bg-hover)] border border-[var(--border-subtle)]">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">
+                {activeQuarter.name}
+              </span>
+            </div>
+          )}
+
+          {/* User Profile */}
+          <div className="relative">
+            <button 
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+            >
+              <div className="w-8 h-8 rounded-full bg-[var(--color-primary-subtle)] flex items-center justify-center text-[var(--color-primary-dark)] text-xs font-bold border border-[var(--color-primary-light)]/20">
+                {user?.email ? getUserInitials(user.email) : '?'}
+              </div>
+              <svg className="w-4 h-4 text-[var(--text-tertiary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {/* User Dropdown */}
+            {showUserMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)}></div>
+                <div className="absolute right-0 top-full mt-2 w-64 p-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl shadow-xl z-50 animate-enter">
+                  <div className="p-3 border-b border-[var(--border-subtle)] mb-1">
+                    <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{user?.email}</p>
+                    <p className="text-xs text-[var(--text-tertiary)] capitalize">{userRole || 'User'}</p>
+                  </div>
+                  <button 
+                    onClick={logout}
+                    className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    Logga ut
+                  </button>
+                </div>
+              </>
+            )}
           </div>
-        </nav>
+        </div>
       </div>
+
+      {/* Register Dropdown Portal */}
+      {showRegisterMenu && mounted && createPortal(
+        <div 
+          ref={registerMenuRef}
+          className="fixed z-[2000] bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl shadow-xl p-1 min-w-[200px] animate-enter"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
+          <div className="text-xs font-semibold text-[var(--text-tertiary)] px-3 py-2 uppercase tracking-wider">
+            Registerhantering
+          </div>
+          {visibleRegisterTabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setActiveTab(tab.id);
+                setShowRegisterMenu(false);
+              }}
+              className={`w-full text-left px-3 py-2.5 text-sm rounded-lg transition-colors flex items-center gap-2 ${
+                activeTab === tab.id 
+                  ? 'bg-[var(--color-primary-subtle)] text-[var(--color-primary-dark)] font-medium' 
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
     </header>
   );
 }

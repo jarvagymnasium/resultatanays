@@ -36,6 +36,7 @@ export default function WarningsTab() {
   const [selectedStudent, setSelectedStudent] = useState<StudentWithGrades | null>(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
+  // ... (Calculation logic remains same, skipping for brevity in thought process but will include in write) ...
   const studentsWithGrades = useMemo((): StudentWithGrades[] => {
     return students.map(student => {
       const studentGrades = grades.filter(g => g.student_id === student.id);
@@ -157,6 +158,7 @@ export default function WarningsTab() {
     return { totalF, studentsWithF, worstCourse, worstClass, courseFCounts, classFCounts };
   }, [filteredStudents, courses, classes, activeGradeTypeFilter]);
 
+  // Updated colors for Modern Tech palette
   const classChartData = useMemo(() => {
     const labels: string[] = [];
     const data: number[] = [];
@@ -175,16 +177,13 @@ export default function WarningsTab() {
     return {
       labels,
       datasets: [{
-        label: activeGradeTypeFilter === 'warnings' ? 'Antal F-varningar' : 'Antal F',
+        label: activeGradeTypeFilter === 'warnings' ? 'F-varningar' : 'F-betyg',
         data,
         backgroundColor: activeGradeTypeFilter === 'warnings' 
-          ? 'rgba(201, 160, 103, 0.6)' 
-          : 'rgba(184, 112, 112, 0.6)',
-        borderColor: activeGradeTypeFilter === 'warnings'
-          ? 'rgba(201, 160, 103, 1)'
-          : 'rgba(184, 112, 112, 1)',
-        borderWidth: 1,
-        borderRadius: 4
+          ? '#f59e0b' // Amber 500
+          : '#ef4444', // Red 500
+        borderRadius: 6,
+        barThickness: 32,
       }]
     };
   }, [stats.classFCounts, classes, activeGradeTypeFilter]);
@@ -192,18 +191,11 @@ export default function WarningsTab() {
   const courseChartData = useMemo(() => {
     const labels: string[] = [];
     const data: number[] = [];
-    const backgroundColors: string[] = [];
     
-    // Muted pastel colors
-    const colors = [
-      'rgba(184, 112, 112, 0.7)',
-      'rgba(201, 160, 103, 0.7)',
-      'rgba(169, 169, 107, 0.7)',
-      'rgba(107, 158, 124, 0.7)',
-      'rgba(107, 140, 158, 0.7)',
-      'rgba(140, 107, 158, 0.7)',
-      'rgba(158, 107, 140, 0.7)',
-      'rgba(158, 140, 107, 0.7)',
+    // Modern palette sequence
+    const backgroundColors = [
+      '#6366f1', '#8b5cf6', '#d946ef', '#ec4899', // Indigo to Pink
+      '#f43f5e', '#f97316', '#f59e0b', '#84cc16'  // Rose to Lime
     ];
     
     Object.entries(stats.courseFCounts)
@@ -214,7 +206,6 @@ export default function WarningsTab() {
         if (course) {
           labels.push(course.code || course.name);
           data.push(count);
-          backgroundColors.push(colors[i % colors.length]);
         }
       });
     
@@ -223,323 +214,274 @@ export default function WarningsTab() {
       datasets: [{
         data,
         backgroundColor: backgroundColors,
-        borderWidth: 0
+        borderWidth: 0,
+        hoverOffset: 15
       }]
     };
   }, [stats.courseFCounts, courses]);
 
   const getRowClass = (fCount: number) => {
-    if (fCount >= 3) return 'f-count-3plus';
-    if (fCount === 2) return 'f-count-2';
-    return 'f-count-1';
-  };
-
-  const handleSelectAllClasses = () => {
-    setSelectedClassIds(classes.map(c => c.id));
-  };
-
-  const handleClearAllClasses = () => {
-    setSelectedClassIds([]);
-  };
-
-  const getFilterLabel = () => {
-    switch (activeGradeTypeFilter) {
-      case 'grades': return 'F-betyg';
-      case 'warnings': return 'F-varningar';
-      case 'both': return 'F (betyg + varningar)';
-    }
+    // Subtle background tints for high risk
+    if (fCount >= 3) return 'bg-red-50/50';
+    if (fCount === 2) return 'bg-orange-50/50';
+    return '';
   };
 
   return (
-    <div className="space-y-6">
-      {/* Title */}
-      <div className="flex flex-wrap gap-4 items-center justify-between">
-        <h2 className="text-xl font-semibold text-[var(--color-text)]">F-varningar & Resultatanalys</h2>
-      </div>
-
-      {/* Grade type filter */}
-      <div className="flex flex-wrap gap-2 items-center">
-        <span className="text-sm text-[var(--color-text-secondary)]">Visa:</span>
-        {(['grades', 'warnings', 'both'] as GradeTypeFilter[]).map(filter => (
-          <button
-            key={filter}
-            onClick={() => setActiveGradeTypeFilter(filter)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeGradeTypeFilter === filter
-                ? 'bg-[var(--color-primary)] text-white'
-                : 'bg-[var(--color-surface-sunken)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'
-            }`}
-          >
-            {filter === 'grades' ? 'F-betyg' : filter === 'warnings' ? 'F-varningar' : 'Båda'}
-          </button>
-        ))}
-      </div>
-
-      {/* Info box */}
-      <div className="bg-[var(--color-surface-sunken)] border border-[var(--color-border-subtle)] rounded-lg p-4 text-sm">
-        <p className="mb-2 text-[var(--color-text)]">
-          <span className="font-medium">F-betyg:</span> Elever som har fått betyget F (underkänt)
-        </p>
-        <p className="text-[var(--color-text)]">
-          <span className="font-medium">F-varningar:</span> Elever som riskerar att få F i framtiden (tidig identifiering)
-        </p>
-      </div>
-
-      {/* Stats cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="stat-card">
-          <div className="text-3xl font-semibold text-[var(--color-danger)]">
-            {stats.totalF}
-          </div>
-          <div className="text-sm text-[var(--color-text-secondary)] mt-1">
-            Totalt antal {getFilterLabel()}
-          </div>
+    <div className="space-y-8 animate-enter">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h2 className="heading-lg mb-1">Resultatöversikt</h2>
+          <p className="text-subtle">Analysera F-betyg och varningar i realtid.</p>
         </div>
-        <div className="stat-card">
-          <div className="text-3xl font-semibold text-[var(--color-primary)]">{stats.studentsWithF}</div>
-          <div className="text-sm text-[var(--color-text-secondary)] mt-1">Elever med {getFilterLabel()}</div>
-        </div>
-        <div className="stat-card">
-          <div className="text-xl font-semibold text-[var(--color-accent)] truncate">
-            {stats.worstCourse?.code || stats.worstCourse?.name || '-'}
-          </div>
-          <div className="text-sm text-[var(--color-text-secondary)] mt-1">Flest {getFilterLabel()} (kurs)</div>
-        </div>
-        <div className="stat-card">
-          <div className="text-xl font-semibold text-[var(--color-primary-soft)] truncate">
-            {stats.worstClass?.name || '-'}
-          </div>
-          <div className="text-sm text-[var(--color-text-secondary)] mt-1">Flest {getFilterLabel()} (klass)</div>
+
+        {/* Filter Tabs - Segmented Control Style */}
+        <div className="inline-flex bg-[var(--bg-card)] p-1 rounded-xl border border-[var(--border-strong)] shadow-sm">
+          {(['grades', 'warnings', 'both'] as GradeTypeFilter[]).map(filter => (
+            <button
+              key={filter}
+              onClick={() => setActiveGradeTypeFilter(filter)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                activeGradeTypeFilter === filter
+                  ? 'bg-[var(--color-primary)] text-white shadow-md'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+              }`}
+            >
+              {filter === 'grades' ? 'F-betyg' : filter === 'warnings' ? 'F-varningar' : 'Alla'}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="card p-4 space-y-4">
-        <div className="flex flex-wrap gap-4 items-center">
-          <div className="flex-1 min-w-[200px]">
-            <input
-              type="text"
-              placeholder="Sök elev..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="input"
-            />
-          </div>
-          
-          <select
-            value={courseFilter}
-            onChange={(e) => setCourseFilter(e.target.value)}
-            className="select min-w-[150px]"
-          >
-            <option value="">Alla kurser</option>
-            {courses.map(course => (
-              <option key={course.id} value={course.id}>
-                {course.code || course.name}
-              </option>
-            ))}
-          </select>
-          
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as 'name' | 'class' | 'f_count')}
-            className="select"
-          >
-            <option value="f_count">Sortera: Flest F</option>
-            <option value="name">Sortera: Namn</option>
-            <option value="class">Sortera: Klass</option>
-          </select>
-          
-          <button
-            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-            className="btn btn-secondary"
-          >
-            {showAdvancedFilters ? 'Dölj filter' : 'Fler filter'}
-          </button>
-        </div>
-
-        {showAdvancedFilters && (
-          <div className="border-t border-[var(--color-border-subtle)] pt-4 mt-4">
-            <div className="flex items-center gap-4 mb-3">
-              <span className="font-medium text-[var(--color-text)]">Klasser:</span>
-              <button
-                onClick={handleSelectAllClasses}
-                className="text-sm text-[var(--color-primary)] hover:underline"
-              >
-                Välj alla
-              </button>
-              <button
-                onClick={handleClearAllClasses}
-                className="text-sm text-[var(--color-primary)] hover:underline"
-              >
-                Rensa alla
-              </button>
+      {/* KPI Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="stat-card group">
+          <div>
+            <p className="text-sm font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">Totalt antal</p>
+            <div className="text-4xl font-bold text-[var(--text-primary)]">
+              {stats.totalF}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {classes.map(cls => (
-                <label
-                  key={cls.id}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors text-sm ${
-                    selectedClassIds.includes(cls.id)
-                      ? 'bg-[var(--color-primary)] text-white'
-                      : 'bg-[var(--color-surface-sunken)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'
-                  }`}
+          </div>
+          <div className="mt-4 flex items-center text-sm">
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              activeGradeTypeFilter === 'warnings' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+            }`}>
+              {activeGradeTypeFilter === 'warnings' ? 'Varningar' : 'Underkända'}
+            </span>
+          </div>
+        </div>
+
+        <div className="stat-card group">
+          <div>
+            <p className="text-sm font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">Berörda elever</p>
+            <div className="text-4xl font-bold text-[var(--color-primary)]">
+              {stats.studentsWithF}
+            </div>
+          </div>
+          <div className="mt-4 text-sm text-[var(--text-tertiary)]">
+            {(stats.studentsWithF / (students.length || 1) * 100).toFixed(1)}% av totalen
+          </div>
+        </div>
+
+        <div className="stat-card group">
+          <div>
+            <p className="text-sm font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">Kurs med flest</p>
+            <div className="text-2xl font-bold text-[var(--text-primary)] truncate" title={stats.worstCourse?.name}>
+              {stats.worstCourse?.code || stats.worstCourse?.name || '-'}
+            </div>
+          </div>
+          <div className="mt-auto pt-2 text-xs text-[var(--text-tertiary)]">
+            Behöver uppmärksamhet
+          </div>
+        </div>
+
+        <div className="stat-card group">
+          <div>
+            <p className="text-sm font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">Klass med flest</p>
+            <div className="text-2xl font-bold text-[var(--text-primary)]">
+              {stats.worstClass?.name || '-'}
+            </div>
+          </div>
+          <div className="mt-auto pt-2 text-xs text-[var(--text-tertiary)]">
+            Insats krävs
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid lg:grid-cols-3 gap-8">
+        
+        {/* Left Column: Charts & Controls */}
+        <div className="lg:col-span-1 space-y-6">
+          {/* Controls Card */}
+          <div className="card p-5">
+            <h3 className="heading-md mb-4 text-lg">Filtrering</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase mb-1.5 block">Sök</label>
+                <input
+                  type="text"
+                  placeholder="Namn eller personnummer..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="input"
+                />
+              </div>
+              
+              <div>
+                <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase mb-1.5 block">Kurs</label>
+                <select
+                  value={courseFilter}
+                  onChange={(e) => setCourseFilter(e.target.value)}
+                  className="select"
                 >
-                  <input
-                    type="checkbox"
-                    checked={selectedClassIds.includes(cls.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedClassIds([...selectedClassIds, cls.id]);
-                      } else {
-                        setSelectedClassIds(selectedClassIds.filter(id => id !== cls.id));
-                      }
-                    }}
-                    className="sr-only"
-                  />
-                  {cls.name}
-                </label>
-              ))}
+                  <option value="">Alla kurser</option>
+                  {courses.map(course => (
+                    <option key={course.id} value={course.id}>
+                      {course.code || course.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase mb-1.5 block">Sortering</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="select"
+                >
+                  <option value="f_count">Antal F (Fallande)</option>
+                  <option value="name">Namn (A-Ö)</option>
+                  <option value="class">Klass (A-Ö)</option>
+                </select>
+              </div>
             </div>
           </div>
-        )}
-      </div>
 
-      {/* Charts */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="card p-4">
-          <h3 className="font-medium text-[var(--color-text)] mb-4">
-            {getFilterLabel()} per klass
-          </h3>
-          <div className="chart-container">
-            <Bar
-              data={classChartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                  y: { beginAtZero: true, ticks: { stepSize: 1 } }
-                }
-              }}
-            />
-          </div>
-        </div>
-        <div className="card p-4">
-          <h3 className="font-medium text-[var(--color-text)] mb-4">
-            {getFilterLabel()} per kurs
-          </h3>
-          <div className="chart-container">
-            <Pie
-              data={courseChartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: {
-                    position: 'right',
-                    labels: { boxWidth: 12, font: { size: 11 } }
+          {/* Chart Card */}
+          <div className="card p-5">
+            <h3 className="heading-md mb-4 text-lg">Fördelning per klass</h3>
+            <div className="h-[250px] w-full">
+              <Bar
+                data={classChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: { legend: { display: false } },
+                  scales: {
+                    y: { 
+                      beginAtZero: true, 
+                      grid: { color: '#f1f5f9' },
+                      border: { display: false } 
+                    },
+                    x: {
+                      grid: { display: false },
+                      border: { display: false }
+                    }
                   }
-                }
-              }}
-            />
+                }}
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Students table */}
-      <div className="card overflow-hidden">
-        <div className="p-4 bg-[var(--color-surface-sunken)] border-b border-[var(--color-border-subtle)]">
-          <h3 className="font-medium text-[var(--color-text)]">
-            Elever med {getFilterLabel()}
-            <span className="text-sm text-[var(--color-text-muted)] ml-2">({filteredStudents.length} elever)</span>
-          </h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-[var(--color-surface-sunken)]">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--color-text-secondary)]">Elev</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--color-text-secondary)]">Klass</th>
-                <th className="px-4 py-3 text-center text-sm font-medium text-[var(--color-text-secondary)]">Antal</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--color-text-secondary)]">Kurser</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--color-border-subtle)]">
-              {filteredStudents.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-[var(--color-text-muted)]">
-                    Inga {getFilterLabel().toLowerCase()} att visa
-                  </td>
-                </tr>
-              ) : (
-                filteredStudents.map(student => {
-                  const fCourses = student.grades
-                    .filter(g => {
-                      if (g.grade !== 'F') return false;
-                      
-                      if (activeGradeTypeFilter === 'grades') {
-                        return g.grade_type !== 'warning';
-                      } else if (activeGradeTypeFilter === 'warnings') {
-                        return g.grade_type === 'warning';
-                      }
-                      return true;
-                    })
-                    .map(g => ({
-                      course: courses.find(c => c.id === g.course_id),
-                      isWarning: g.grade_type === 'warning'
-                    }))
-                    .filter(item => item.course);
-                  
-                  return (
-                    <tr key={student.id} className={getRowClass(student.fCount)}>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => setSelectedStudent(student)}
-                          className="student-name font-medium"
-                        >
-                          {student.name}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-[var(--color-text-secondary)]">
-                        {student.class?.name || '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`px-2 py-1 rounded text-sm font-medium ${
-                          activeGradeTypeFilter === 'warnings'
-                            ? 'bg-[var(--color-warning-soft)] text-[var(--color-warning)]'
-                            : 'bg-[var(--color-danger-soft)] text-[var(--color-danger)]'
-                        }`}>
-                          {student.fCount}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {fCourses.slice(0, 5).map(({ course, isWarning }, idx) => (
-                            <span
-                              key={`${course!.id}-${idx}`}
-                              className={`text-xs px-2 py-0.5 rounded ${
-                                isWarning
-                                  ? 'bg-[var(--color-warning-soft)] text-[var(--color-warning)]'
-                                  : 'bg-[var(--color-danger-soft)] text-[var(--color-danger)]'
-                              }`}
-                              title={isWarning ? 'F-varning' : 'F-betyg'}
-                            >
-                              {course!.code || course!.name}
-                            </span>
-                          ))}
-                          {fCourses.length > 5 && (
-                            <span className="text-xs text-[var(--color-text-muted)]">
-                              +{fCourses.length - 5}
-                            </span>
-                          )}
-                        </div>
+        {/* Right Column: Detailed Table */}
+        <div className="lg:col-span-2">
+          <div className="card h-full flex flex-col">
+            <div className="p-5 border-b border-[var(--border-subtle)] flex justify-between items-center bg-[var(--bg-secondary)]/30">
+              <h3 className="heading-md text-lg">Detaljerad lista</h3>
+              <span className="badge bg-[var(--bg-active)] text-[var(--text-secondary)]">
+                {filteredStudents.length} elever
+              </span>
+            </div>
+            
+            <div className="overflow-x-auto flex-1">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider bg-[var(--bg-secondary)]/50">
+                    <th className="px-6 py-4">Elev</th>
+                    <th className="px-6 py-4">Klass</th>
+                    <th className="px-6 py-4 text-center">Antal</th>
+                    <th className="px-6 py-4">Kurser</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border-subtle)]">
+                  {filteredStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-12 text-center text-[var(--text-tertiary)]">
+                        Inga resultat matchar dina filter.
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  ) : (
+                    filteredStudents.map(student => {
+                      const fCourses = student.grades
+                        .filter(g => {
+                          if (g.grade !== 'F') return false;
+                          if (activeGradeTypeFilter === 'grades') return g.grade_type !== 'warning';
+                          if (activeGradeTypeFilter === 'warnings') return g.grade_type === 'warning';
+                          return true;
+                        })
+                        .map(g => ({
+                          course: courses.find(c => c.id === g.course_id),
+                          isWarning: g.grade_type === 'warning'
+                        }))
+                        .filter(item => item.course);
+                      
+                      return (
+                        <tr key={student.id} className={`hover:bg-[var(--bg-hover)] transition-colors group ${getRowClass(student.fCount)}`}>
+                          <td className="px-6 py-4">
+                            <button
+                              onClick={() => setSelectedStudent(student)}
+                              className="font-medium text-[var(--text-primary)] hover:text-[var(--color-primary)] transition-colors"
+                            >
+                              {student.name}
+                            </button>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[var(--text-secondary)]">
+                            {student.class?.name || '-'}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                              student.fCount >= 3 
+                                ? 'bg-red-100 text-red-700' 
+                                : student.fCount === 2 
+                                  ? 'bg-amber-100 text-amber-700' 
+                                  : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {student.fCount}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1.5">
+                              {fCourses.slice(0, 3).map(({ course, isWarning }, idx) => (
+                                <span
+                                  key={`${course!.id}-${idx}`}
+                                  className={`text-[10px] px-2 py-1 rounded border font-medium ${
+                                    isWarning
+                                      ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                      : 'bg-red-50 border-red-200 text-red-700'
+                                  }`}
+                                >
+                                  {course!.code || course!.name}
+                                </span>
+                              ))}
+                              {fCourses.length > 3 && (
+                                <span className="text-[10px] px-2 py-1 rounded bg-slate-50 border border-slate-200 text-slate-500 font-medium">
+                                  +{fCourses.length - 3}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
 
