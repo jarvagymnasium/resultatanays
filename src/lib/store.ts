@@ -140,6 +140,7 @@ interface AppState {
   
   createSnapshot: (name: string, notes?: string) => Promise<void>;
   deleteSnapshot: (snapshotId: string) => Promise<void>;
+  saveSnapshotAnalysis: (snapshotId: string, analysis: string) => Promise<void>;
   
   reactivateStudent: (id: string) => Promise<void>;
   reactivateCourse: (id: string) => Promise<void>;
@@ -462,16 +463,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   
-  fetchSnapshots: async () => {
-    const { data, error } = await supabase
-      .from('snapshots')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (!error && data) {
-      set({ snapshots: data });
-    }
-  },
   
   fetchArchivedData: async () => {
     const [studentsRes, coursesRes, classesRes] = await Promise.all([
@@ -679,6 +670,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activeQuarter, grades, students, courses, classes, user } = get();
     if (!activeQuarter) throw new Error('Inget aktivt kvartal');
     
+    // Använd rätt tabellnamn: quarter_snapshots
     const snapshotData = {
       name,
       quarter_id: activeQuarter.id,
@@ -690,17 +682,71 @@ export const useAppStore = create<AppState>((set, get) => ({
         passRate: grades.length > 0 
           ? (grades.filter(g => g.grade && g.grade !== 'F').length / grades.filter(g => g.grade).length) * 100 
           : 0,
-        averageGrade: 0 // Calculate if needed
+        averageGrade: 0
       },
-      created_by: user?.id
+      created_by: user?.id,
+      snapshot_date: new Date().toISOString() // Viktigt för sortering
     };
     
-    await supabase.from('snapshots').insert(snapshotData);
+    const { error } = await supabase.from('quarter_snapshots').insert(snapshotData);
+    if (error) {
+      console.error('Error creating snapshot:', error);
+      throw error;
+    }
     await get().fetchSnapshots();
   },
   
   deleteSnapshot: async (snapshotId) => {
-    await supabase.from('snapshots').delete().eq('id', snapshotId);
+    const { error } = await supabase.from('quarter_snapshots').delete().eq('id', snapshotId);
+    if (error) console.error('Error deleting snapshot:', error);
+    await get().fetchSnapshots();
+  },
+
+  fetchSnapshots: async () => {
+    // Använd rätt tabellnamn: quarter_snapshots
+    const { data, error } = await supabase
+      .from('quarter_snapshots')
+      .select('*')
+      .order('snapshot_date', { ascending: false }); // Sortera på snapshot_date
+    
+    if (!error && data) {
+      // Parse analysis from notes if present
+      const snapshotsWithAnalysis = data.map(s => {
+        let analysis = null;
+        let notes = s.notes;
+        
+        if (s.notes && s.notes.includes('---\nANALYS\n')) {
+          const parts = s.notes.split('---\nANALYS\n');
+          notes = parts[0].trim();
+          analysis = parts[1];
+        }
+        
+        return { ...s, notes, analysis };
+      });
+      
+      set({ snapshots: snapshotsWithAnalysis });
+    } else if (error) {
+      console.error('Error fetching snapshots:', error);
+    }
+  },
+
+  saveSnapshotAnalysis: async (snapshotId, analysis) => {
+    const snapshot = get().snapshots.find(s => s.id === snapshotId);
+    if (!snapshot) return;
+
+    // Append analysis to notes with a separator, preserving existing notes
+    const newNotes = `${snapshot.notes || ''}\n\n---\nANALYS\n${analysis}`;
+
+    const { error } = await supabase
+      .from('quarter_snapshots')
+      .update({ notes: newNotes })
+      .eq('id', snapshotId);
+
+    if (error) {
+      console.error('Error saving analysis:', error);
+      throw error;
+    }
+
     await get().fetchSnapshots();
   },
   
