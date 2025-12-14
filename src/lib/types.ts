@@ -108,9 +108,26 @@ export interface GradeHistory {
   from_grade: string | null;
   to_grade: string;
   change_type: 'improvement' | 'decline' | 'new';
-  grade_type: 'grade' | 'warning';
+  grade_type?: 'grade' | 'warning';
+  teacher_id?: string;
   changed_by?: string;
   created_at?: string;
+  notes?: string;
+  // Snapshot data - preserves info even if student/course is deleted
+  student_snapshot?: {
+    first_name?: string;
+    last_name?: string;
+    class_id?: string;
+    class_name?: string;
+  } | null;
+  course_snapshot?: {
+    code?: string;
+    name?: string;
+  } | null;
+  class_snapshot?: {
+    id?: string;
+    name?: string;
+  } | null;
 }
 
 export interface Snapshot {
