@@ -35,6 +35,8 @@ export default function WarningsTab() {
   const [sortBy, setSortBy] = useState<'name' | 'class' | 'f_count'>('f_count');
   const [selectedStudent, setSelectedStudent] = useState<StudentWithGrades | null>(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
 
   // ... (Calculation logic remains same, skipping for brevity in thought process but will include in write) ...
   const studentsWithGrades = useMemo((): StudentWithGrades[] => {
@@ -108,6 +110,19 @@ export default function WarningsTab() {
         }
       });
   }, [studentsWithGrades, selectedClassIds, searchTerm, courseFilter, sortBy, activeGradeTypeFilter]);
+
+  // Reset page when filters change
+  useMemo(() => {
+    setCurrentPage(1);
+  }, [searchTerm, courseFilter, selectedClassIds, activeGradeTypeFilter]);
+
+  // Paginated students
+  const paginatedStudents = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredStudents.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredStudents, currentPage]);
+
+  const totalPages = Math.ceil(filteredStudents.length / ITEMS_PER_PAGE);
 
   const stats = useMemo(() => {
     const totalF = filteredStudents.reduce((sum, s) => sum + s.fCount, 0);
@@ -360,7 +375,7 @@ export default function WarningsTab() {
             </div>
           </div>
 
-          {/* Chart Card */}
+          {/* Chart Card - Classes */}
           <div className="card p-5">
             <h3 className="heading-md mb-4 text-lg">Fördelning per klass</h3>
             <div className="h-[250px] w-full">
@@ -385,6 +400,39 @@ export default function WarningsTab() {
               />
             </div>
           </div>
+
+          {/* Chart Card - Courses */}
+          <div className="card p-5">
+            <h3 className="heading-md mb-4 text-lg">Fördelning per kurs</h3>
+            <div className="h-[280px] w-full flex items-center justify-center">
+              {courseChartData.labels.length > 0 ? (
+                <Pie
+                  data={courseChartData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: 'bottom',
+                        labels: {
+                          boxWidth: 12,
+                          padding: 8,
+                          font: { size: 11 }
+                        }
+                      },
+                      tooltip: {
+                        callbacks: {
+                          label: (ctx) => `${ctx.label}: ${ctx.raw} st`
+                        }
+                      }
+                    }
+                  }}
+                />
+              ) : (
+                <p className="text-[var(--text-tertiary)] text-sm">Ingen data att visa</p>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Right Column: Detailed Table */}
@@ -392,9 +440,16 @@ export default function WarningsTab() {
           <div className="card h-full flex flex-col">
             <div className="p-5 border-b border-[var(--border-subtle)] flex justify-between items-center bg-[var(--bg-secondary)]/30">
               <h3 className="heading-md text-lg">Detaljerad lista</h3>
-              <span className="badge bg-[var(--bg-active)] text-[var(--text-secondary)]">
-                {filteredStudents.length} elever
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="badge bg-[var(--bg-active)] text-[var(--text-secondary)]">
+                  {filteredStudents.length} elever
+                </span>
+                {totalPages > 1 && (
+                  <span className="text-xs text-[var(--text-tertiary)]">
+                    Sida {currentPage} av {totalPages}
+                  </span>
+                )}
+              </div>
             </div>
             
             <div className="overflow-x-auto flex-1">
@@ -408,14 +463,14 @@ export default function WarningsTab() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border-subtle)]">
-                  {filteredStudents.length === 0 ? (
+                  {paginatedStudents.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="px-6 py-12 text-center text-[var(--text-tertiary)]">
                         Inga resultat matchar dina filter.
                       </td>
                     </tr>
                   ) : (
-                    filteredStudents.map(student => {
+                    paginatedStudents.map(student => {
                       const fCourses = student.grades
                         .filter(g => {
                           if (g.grade !== 'F') return false;
@@ -481,6 +536,78 @@ export default function WarningsTab() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/30 flex items-center justify-between">
+                <div className="text-sm text-[var(--text-tertiary)]">
+                  Visar {((currentPage - 1) * ITEMS_PER_PAGE) + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, filteredStudents.length)} av {filteredStudents.length}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="px-2 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
+                    title="Första sidan"
+                  >
+                    ««
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
+                  >
+                    Föregående
+                  </button>
+                  
+                  {/* Page numbers */}
+                  <div className="flex items-center gap-1 mx-2">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum: number;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`w-8 h-8 rounded text-sm font-medium transition-colors ${
+                            currentPage === pageNum
+                              ? 'bg-[var(--color-primary)] text-white'
+                              : 'hover:bg-[var(--bg-hover)]'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
+                  >
+                    Nästa
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="px-2 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
+                    title="Sista sidan"
+                  >
+                    »»
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
