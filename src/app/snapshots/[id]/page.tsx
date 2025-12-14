@@ -178,91 +178,99 @@ export default function SnapshotDetailPage() {
   // Download PDF
   const downloadPDF = async () => {
     const analysis = localAnalysis || snapshot?.analysis;
-    if (!analysis || !snapshot) return;
-
-    const jsPDF = await loadJsPDF();
-    const doc = new jsPDF();
-    
-    const margin = 20;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const maxWidth = pageWidth - margin * 2;
-    let y = margin;
-
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    doc.text(snapshot.name, margin, y);
-    y += 10;
-
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100);
-    doc.text(`${quarter?.name || 'Okänt kvartal'} - ${snapshot.created_at ? new Date(snapshot.created_at).toLocaleDateString('sv-SE') : ''}`, margin, y);
-    y += 15;
-
-    doc.setTextColor(0);
-    doc.setFontSize(10);
-
-    const lines = analysis.split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        y += 5;
-        continue;
-      }
-
-      if (trimmed.startsWith('### ')) {
-        y += 8;
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        const text = trimmed.replace(/^### /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, '');
-        doc.text(text, margin, y);
-        y += 8;
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-      } else if (trimmed.startsWith('## ')) {
-        y += 10;
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        const text = trimmed.replace(/^## /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, '');
-        doc.text(text, margin, y);
-        y += 10;
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-      } else if (trimmed.startsWith('# ')) {
-        y += 12;
-        doc.setFontSize(16);
-        doc.setFont('helvetica', 'bold');
-        const text = trimmed.replace(/^# /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, '');
-        doc.text(text, margin, y);
-        y += 12;
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-      } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        const bulletText = trimmed.substring(2).replace(/[^\w\såäöÅÄÖ.,!?:;()\-–%]/g, '');
-        const wrapped = doc.splitTextToSize(`• ${bulletText}`, maxWidth - 5);
-        for (const wline of wrapped) {
-          if (y > 270) {
-            doc.addPage();
-            y = margin;
-          }
-          doc.text(wline, margin + 5, y);
-          y += 6;
-        }
-      } else {
-        const cleanText = trimmed.replace(/\*\*/g, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–%]/g, '');
-        const wrapped = doc.splitTextToSize(cleanText, maxWidth);
-        for (const wline of wrapped) {
-          if (y > 270) {
-            doc.addPage();
-            y = margin;
-          }
-          doc.text(wline, margin, y);
-          y += 6;
-        }
-      }
+    if (!analysis || !snapshot) {
+      console.error('No analysis or snapshot available for PDF');
+      return;
     }
 
-    doc.save(`${snapshot.name.replace(/[^a-zA-Z0-9åäöÅÄÖ]/g, '_')}_analys.pdf`);
+    try {
+      const JsPDFClass = await loadJsPDF();
+      const doc = new JsPDFClass();
+      
+      const margin = 20;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const maxWidth = pageWidth - margin * 2;
+      let y = margin;
+
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text(snapshot.name, margin, y);
+      y += 10;
+
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100);
+      doc.text(`${quarter?.name || 'Okänt kvartal'} - ${snapshot.created_at ? new Date(snapshot.created_at).toLocaleDateString('sv-SE') : ''}`, margin, y);
+      y += 15;
+
+      doc.setTextColor(0);
+      doc.setFontSize(10);
+
+      const lines = analysis.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          y += 5;
+          continue;
+        }
+
+        if (trimmed.startsWith('### ')) {
+          y += 8;
+          doc.setFontSize(12);
+          doc.setFont('helvetica', 'bold');
+          const text = trimmed.replace(/^### /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, '');
+          doc.text(text, margin, y);
+          y += 8;
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+        } else if (trimmed.startsWith('## ')) {
+          y += 10;
+          doc.setFontSize(14);
+          doc.setFont('helvetica', 'bold');
+          const text = trimmed.replace(/^## /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, '');
+          doc.text(text, margin, y);
+          y += 10;
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+        } else if (trimmed.startsWith('# ')) {
+          y += 12;
+          doc.setFontSize(16);
+          doc.setFont('helvetica', 'bold');
+          const text = trimmed.replace(/^# /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, '');
+          doc.text(text, margin, y);
+          y += 12;
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+        } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+          const bulletText = trimmed.substring(2).replace(/[^\w\såäöÅÄÖ.,!?:;()\-–%]/g, '');
+          const wrapped = doc.splitTextToSize(`• ${bulletText}`, maxWidth - 5);
+          for (const wline of wrapped) {
+            if (y > 270) {
+              doc.addPage();
+              y = margin;
+            }
+            doc.text(wline, margin + 5, y);
+            y += 6;
+          }
+        } else {
+          const cleanText = trimmed.replace(/\*\*/g, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–%]/g, '');
+          const wrapped = doc.splitTextToSize(cleanText, maxWidth);
+          for (const wline of wrapped) {
+            if (y > 270) {
+              doc.addPage();
+              y = margin;
+            }
+            doc.text(wline, margin, y);
+            y += 6;
+          }
+        }
+      }
+
+      doc.save(`${snapshot.name.replace(/[^a-zA-Z0-9åäöÅÄÖ]/g, '_')}_analys.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Kunde inte skapa PDF. Försök igen.');
+    }
   };
 
   // Handle delete

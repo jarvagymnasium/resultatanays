@@ -31,6 +31,10 @@ export default function SnapshotsTab() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) return;
+    if (!activeQuarter) {
+      alert('Inget aktivt kvartal valt. Välj ett kvartal först under Statistik → Kvartal.');
+      return;
+    }
     
     setIsSubmitting(true);
     try {
@@ -38,6 +42,7 @@ export default function SnapshotsTab() {
       resetForm();
     } catch (error) {
       console.error('Error creating snapshot:', error);
+      alert('Kunde inte skapa snapshot. Försök igen.');
     } finally {
       setIsSubmitting(false);
     }
