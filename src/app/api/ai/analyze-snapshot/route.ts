@@ -17,7 +17,8 @@ const SYSTEM_PROMPT = `Du är en erfaren skolanalytiker och pedagogisk rådgivar
 
 **Nyckeltal**
 Presentera följande i en tydlig lista:
-- Totalt antal elever med registrerade betyg
+- Täckningsgrad (andel elever med minst ett registrerat betyg i snapshoten)
+- Totalt antal elever med minst ett registrerat betyg
 - Antal F-betyg (och F-varningar separat om data finns)
 - Godkänt-andel (% som inte har F)
 - Antal förbättringar (om data finns)
@@ -77,6 +78,7 @@ Avsluta med en kort uppmuntrande mening om vägen framåt.
 - Nämn ALDRIG enskilda elevers namn i analysen (integritetsskydd)
 - Fokusera på mönster och aggregerad data
 - Var ödmjuk om data är begränsad - säg "baserat på tillgänglig data"
+- Tolka aldrig \"saknar betyg\" som bra eller dåligt. Elever/kurser utan betyg ska inte ingå i jämförelser; använd täckningsgrad som kontext.
 - Håll analysen koncis men innehållsrik (ca 800-1200 ord)`;
 
 interface SnapshotData {
@@ -84,8 +86,12 @@ interface SnapshotData {
   quarterName: string;
   snapshotDate: string;
   stats: {
-    totalStudents: number;
-    totalGrades: number;
+    // Only students/courses with at least one recorded grade are counted in analysis.
+    // Missing grades should NOT be interpreted as good/bad.
+    totalStudents: number;      // students with at least 1 grade recorded
+    totalStudentsAll: number;   // all students in snapshot roster
+    coveragePct: number;        // totalStudents / totalStudentsAll * 100
+    totalGrades: number;        // grades with grade != null
     totalFGrades: number;
     totalFWarnings: number;
     passRate: number;
@@ -93,13 +99,15 @@ interface SnapshotData {
   };
   classBreakdown: Array<{
     className: string;
-    studentCount: number;
+    studentCount: number;         // students with at least 1 grade recorded
+    totalStudentsInClass: number; // roster size (not used for performance judgment)
     fCount: number;
     fWarningCount: number;
   }>;
   courseBreakdown: Array<{
     courseCode: string;
     courseName: string;
+    studentCount: number; // students with at least 1 grade recorded in course
     fCount: number;
     fWarningCount: number;
   }>;
@@ -181,15 +189,16 @@ export async function POST(request: NextRequest) {
 
 function buildUserPrompt(data: SnapshotData): string {
   const classTable = data.classBreakdown
+    // Compare only on students with recorded grades (studentCount)
     .sort((a, b) => (b.fCount / Math.max(b.studentCount, 1)) - (a.fCount / Math.max(a.studentCount, 1)))
     .slice(0, 15)
-    .map(c => `- ${c.className}: ${c.studentCount} elever, ${c.fCount} F-betyg, ${c.fWarningCount} F-varningar`)
+    .map(c => `- ${c.className}: ${c.studentCount} elever med betyg (av ${c.totalStudentsInClass}), ${c.fCount} F-betyg, ${c.fWarningCount} F-varningar`)
     .join('\n');
 
   const courseTable = data.courseBreakdown
     .sort((a, b) => b.fCount - a.fCount)
     .slice(0, 15)
-    .map(c => `- ${c.courseCode} (${c.courseName}): ${c.fCount} F-betyg, ${c.fWarningCount} F-varningar`)
+    .map(c => `- ${c.courseCode} (${c.courseName}): ${c.studentCount} elever med betyg, ${c.fCount} F-betyg, ${c.fWarningCount} F-varningar`)
     .join('\n');
 
   return `Analysera följande snapshot-data från Järva Gymnasium:
@@ -200,12 +209,17 @@ function buildUserPrompt(data: SnapshotData): string {
 - **Datum:** ${data.snapshotDate}
 
 ## Övergripande statistik
-- Totalt antal elever med betyg: ${data.stats.totalStudents}
-- Totalt antal registrerade betyg: ${data.stats.totalGrades}
+- Elever totalt i snapshot (roster): ${data.stats.totalStudentsAll}
+- Elever med minst ett registrerat betyg: ${data.stats.totalStudents} (${data.stats.coveragePct.toFixed(1)}% täckningsgrad)
+- Totalt antal registrerade betyg (endast satta betyg): ${data.stats.totalGrades}
 - Antal F-betyg: ${data.stats.totalFGrades}
 - Antal F-varningar: ${data.stats.totalFWarnings}
-- Godkänt-andel: ${data.stats.passRate.toFixed(1)}%
+- Godkänt-andel: ${data.stats.passRate.toFixed(1)}% (beräknat endast på satta betyg)
 ${data.stats.totalImprovements !== undefined ? `- Antal förbättringar (F → godkänt): ${data.stats.totalImprovements}` : ''}
+
+## Viktigt om tolkning av data
+- Elever/kurser utan betyg (saknar underlag) ska INTE jämföras eller tolkas som bra/dåligt.
+- Basera analys, jämförelser och rekommendationer på F-betyg, F-varningar och förbättringar (F -> godkänt) samt andelar beräknade på satta betyg.
 
 ## Elever i riskzonen
 - Elever med 1 F-betyg: ${data.studentsAtRisk.with1F}

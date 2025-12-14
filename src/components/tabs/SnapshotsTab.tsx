@@ -83,23 +83,31 @@ export default function SnapshotsTab() {
   const buildAnalysisData = useCallback((snapshot: Snapshot) => {
     const quarter = quarters.find(q => q.id === snapshot.quarter_id);
     const snapshotGrades = snapshot.data?.grades || [];
+    const gradedSnapshotGrades = snapshotGrades.filter(g => g.grade !== null);
     const snapshotStudents = snapshot.data?.students || [];
     const snapshotCourses = snapshot.data?.courses || [];
     const snapshotClasses = snapshot.data?.classes || [];
 
+    const studentsWithAnyGrade = new Set(gradedSnapshotGrades.map(g => g.student_id));
+    const totalStudentsAll = snapshotStudents.length;
+    const totalStudentsWithGrades = studentsWithAnyGrade.size;
+    const coveragePct = totalStudentsAll > 0 ? (totalStudentsWithGrades / totalStudentsAll) * 100 : 0;
+
     // Calculate class breakdown
     const classBreakdown = snapshotClasses.map(cls => {
-      const classStudentIds = snapshotStudents
+      const classStudentIdsAll = snapshotStudents
         .filter(s => s.class_id === cls.id)
         .map(s => s.id);
       
-      const classGrades = snapshotGrades.filter(g => classStudentIds.includes(g.student_id));
+      const classStudentIdsWithGrades = classStudentIdsAll.filter(id => studentsWithAnyGrade.has(id));
+      const classGrades = gradedSnapshotGrades.filter(g => classStudentIdsWithGrades.includes(g.student_id));
       const fCount = classGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
       const fWarningCount = classGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
 
       return {
         className: cls.name,
-        studentCount: classStudentIds.length,
+        studentCount: classStudentIdsWithGrades.length, // only students with at least 1 grade
+        totalStudentsInClass: classStudentIdsAll.length,
         fCount,
         fWarningCount
       };
@@ -107,13 +115,15 @@ export default function SnapshotsTab() {
 
     // Calculate course breakdown
     const courseBreakdown = snapshotCourses.map(course => {
-      const courseGrades = snapshotGrades.filter(g => g.course_id === course.id);
+      const courseGrades = gradedSnapshotGrades.filter(g => g.course_id === course.id);
       const fCount = courseGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
       const fWarningCount = courseGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
+      const studentsWithGradesInCourse = new Set(courseGrades.map(g => g.student_id)).size;
 
       return {
         courseCode: course.code || course.name,
         courseName: course.name,
+        studentCount: studentsWithGradesInCourse, // coverage in course
         fCount,
         fWarningCount
       };
@@ -121,7 +131,7 @@ export default function SnapshotsTab() {
 
     // Calculate students at risk
     const studentFCounts: Record<string, number> = {};
-    snapshotGrades.forEach(g => {
+    gradedSnapshotGrades.forEach(g => {
       if (g.grade === 'F' && g.grade_type !== 'warning') {
         studentFCounts[g.student_id] = (studentFCounts[g.student_id] || 0) + 1;
       }
@@ -138,6 +148,12 @@ export default function SnapshotsTab() {
       h => h.from_grade === 'F' && h.quarter_id === snapshot.quarter_id
     ).length;
 
+    const totalFGrades = gradedSnapshotGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
+    const totalFWarnings = gradedSnapshotGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
+    const passRate = gradedSnapshotGrades.length > 0
+      ? ((gradedSnapshotGrades.length - totalFGrades) / gradedSnapshotGrades.length) * 100
+      : 0;
+
     return {
       name: snapshot.name,
       quarterName: quarter?.name || 'Okänt kvartal',
@@ -145,11 +161,13 @@ export default function SnapshotsTab() {
         ? new Date(snapshot.created_at).toLocaleDateString('sv-SE')
         : new Date().toLocaleDateString('sv-SE'),
       stats: {
-        totalStudents: new Set(snapshotGrades.map(g => g.student_id)).size,
-        totalGrades: snapshotGrades.length,
-        totalFGrades: snapshot.stats?.totalFGrades || 0,
-        totalFWarnings: snapshot.stats?.totalWarnings || 0,
-        passRate: snapshot.stats?.passRate || 0,
+        totalStudents: totalStudentsWithGrades,
+        totalStudentsAll,
+        coveragePct,
+        totalGrades: gradedSnapshotGrades.length,
+        totalFGrades,
+        totalFWarnings,
+        passRate,
         totalImprovements
       },
       classBreakdown,
