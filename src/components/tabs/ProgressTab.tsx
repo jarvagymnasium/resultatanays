@@ -18,17 +18,12 @@ import {
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Title, Tooltip, Legend);
 
 export default function ProgressTab() {
-  const { gradeHistory, students, courses, classes, activeQuarter } = useAppStore();
+  const { gradeHistory, students, courses, classes, activeQuarter, archivedStudents, archivedCourses } = useAppStore();
   const [scope, setScope] = useState<'active' | 'all'>('active');
 
-  // Debug: log what's in gradeHistory
-  const allImprovements = gradeHistory.filter(h => h.change_type === 'improvement');
-  const quarterIds = [...new Set(allImprovements.map(h => h.quarter_id))];
-  console.log('gradeHistory total:', gradeHistory.length, 
-    'improvements:', allImprovements.length,
-    'activeQuarter:', activeQuarter?.id,
-    'quarter_ids in improvements:', quarterIds,
-    'matches active:', allImprovements.filter(h => h.quarter_id === activeQuarter?.id).length);
+  // Combine active + archived students/courses so we can show historical improvements
+  const allStudents = useMemo(() => [...students, ...archivedStudents], [students, archivedStudents]);
+  const allCourses = useMemo(() => [...courses, ...archivedCourses], [courses, archivedCourses]);
 
   // Get improvements only
   const improvements = useMemo(() => {
@@ -38,12 +33,12 @@ export default function ProgressTab() {
       .filter(h => !activeQuarterId || h.quarter_id === activeQuarterId)
       .map(h => ({
         ...h,
-        student: students.find(s => s.id === h.student_id),
-        course: courses.find(c => c.id === h.course_id)
+        student: allStudents.find(s => s.id === h.student_id),
+        course: allCourses.find(c => c.id === h.course_id)
       }))
-      .filter(h => h.student && h.course)
+      // Don't filter out items without student/course - show them anyway with fallback names
       .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-  }, [gradeHistory, students, courses, activeQuarter?.id, scope]);
+  }, [gradeHistory, allStudents, allCourses, activeQuarter?.id, scope]);
 
   const totalImprovementsAllQuarters = useMemo(() => {
     return gradeHistory.filter(h => h.change_type === 'improvement').length;
@@ -68,10 +63,10 @@ export default function ProgressTab() {
         mostImprovedCount = count;
       }
     });
-    const mostImprovedCourse = courses.find(c => c.id === mostImprovedCourseId);
+    const mostImprovedCourse = allCourses.find(c => c.id === mostImprovedCourseId);
     
     return { totalImprovements, studentsWithImprovements, mostImprovedCourse };
-  }, [improvements, courses]);
+  }, [improvements, allCourses]);
 
   // Chart data - improvements per class
   const classChartData = useMemo(() => {
@@ -126,9 +121,13 @@ export default function ProgressTab() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .forEach(([courseId, count]) => {
-        const course = courses.find(c => c.id === courseId);
+        const course = allCourses.find(c => c.id === courseId);
         if (course) {
           labels.push(course.code || course.name);
+          data.push(count);
+        } else {
+          // Show even if course not found
+          labels.push('Okänd kurs');
           data.push(count);
         }
       });
@@ -144,7 +143,7 @@ export default function ProgressTab() {
         tension: 0.4
       }]
     };
-  }, [improvements, courses]);
+  }, [improvements, allCourses]);
 
   return (
     <div className="space-y-6">
@@ -277,14 +276,14 @@ export default function ProgressTab() {
                     <tr key={improvement.id} className="bg-green-50/50 dark:bg-green-900/10">
                       <td className="px-4 py-3">
                         <div>
-                          <span className="font-medium">{improvement.student?.name}</span>
+                          <span className="font-medium">{improvement.student?.name || 'Okänd elev'}</span>
                           {studentClass && (
                             <span className="text-xs text-gray-500 ml-2">({studentClass.name})</span>
                           )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        {improvement.course?.code || improvement.course?.name}
+                        {improvement.course?.code || improvement.course?.name || 'Okänd kurs'}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className="text-red-500 font-medium">
