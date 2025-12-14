@@ -1,24 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
-import type { Snapshot } from '@/lib/types';
-
-// Dynamic import for jsPDF
-const loadJsPDF = async () => {
-  const { jsPDF } = await import('jspdf');
-  return jsPDF;
-};
-
-interface AnalysisState {
-  [snapshotId: string]: {
-    isLoading: boolean;
-    analysis: string | null;
-    error: string | null;
-  };
-}
 
 export default function SnapshotsTab() {
+  const router = useRouter();
   const {
     snapshots,
     quarters,
@@ -26,21 +13,14 @@ export default function SnapshotsTab() {
     createSnapshot,
     deleteSnapshot,
     fetchSnapshots,
-    saveSnapshotAnalysis,
     userCan,
-    gradeHistory,
-    grades,  // Hämta aktuella betyg från store
-    students,
-    courses,
-    classes
+    grades
   } = useAppStore();
 
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState('');
   const [formNotes, setFormNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
-  const [analysisState, setAnalysisState] = useState<AnalysisState>({});
 
   const canManage = userCan('manage_quarters');
 
@@ -63,7 +43,8 @@ export default function SnapshotsTab() {
     }
   };
 
-  const handleDelete = async (snapshotId: string) => {
+  const handleDelete = async (e: React.MouseEvent, snapshotId: string) => {
+    e.stopPropagation();
     if (!confirm('Vill du radera denna snapshot?')) return;
     try {
       await deleteSnapshot(snapshotId);
@@ -78,272 +59,38 @@ export default function SnapshotsTab() {
     setFormNotes('');
   };
 
-  const getSnapshot = (id: string) => snapshots.find(s => s.id === id);
-  const selectedSnapshotData = selectedSnapshot ? getSnapshot(selectedSnapshot) : null;
-
-  // Build analysis data logic
-  // Betyg hämtas ALLTID via quarter_id (de sparas inte i snapshot enligt DB-schemat)
-  // Elever/kurser/klasser kan komma från snapshot eller aktuella data
-  const buildAnalysisData = useCallback((snapshot: Snapshot) => {
-    const quarter = quarters.find(q => q.id === snapshot.quarter_id);
-    
-    // Betyg hämtas ALLTID från grades-tabellen filtrerat på quarter_id
-    const snapshotGrades = grades.filter(g => g.quarter_id === snapshot.quarter_id);
-    const gradedSnapshotGrades = snapshotGrades.filter(g => g.grade !== null);
-    
-    // Elever/kurser/klasser - använd snapshot-data om den finns, annars aktuella
-    const snapshotStudents = (snapshot.data?.students && snapshot.data.students.length > 0) 
-      ? snapshot.data.students : students;
-    const snapshotCourses = (snapshot.data?.courses && snapshot.data.courses.length > 0) 
-      ? snapshot.data.courses : courses;
-    const snapshotClasses = (snapshot.data?.classes && snapshot.data.classes.length > 0) 
-      ? snapshot.data.classes : classes;
-
-    const studentsWithAnyGrade = new Set(gradedSnapshotGrades.map(g => g.student_id));
-    const totalStudentsAll = snapshotStudents.length;
-    const totalStudentsWithGrades = studentsWithAnyGrade.size;
-    const coveragePct = totalStudentsAll > 0 ? (totalStudentsWithGrades / totalStudentsAll) * 100 : 0;
-
-    // Class breakdown
-    const classBreakdown = snapshotClasses.map(cls => {
-      const classStudentIdsAll = snapshotStudents
-        .filter(s => s.class_id === cls.id)
-        .map(s => s.id);
-      
-      const classStudentIdsWithGrades = classStudentIdsAll.filter(id => studentsWithAnyGrade.has(id));
-      const classGrades = gradedSnapshotGrades.filter(g => classStudentIdsWithGrades.includes(g.student_id));
-      const fCount = classGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
-      const fWarningCount = classGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
-
-      return {
-        className: cls.name,
-        studentCount: classStudentIdsWithGrades.length,
-        totalStudentsInClass: classStudentIdsAll.length,
-        fCount,
-        fWarningCount
-      };
-    }).filter(c => c.studentCount > 0);
-
-    // Course breakdown
-    const courseBreakdown = snapshotCourses.map(course => {
-      const courseGrades = gradedSnapshotGrades.filter(g => g.course_id === course.id);
-      const fCount = courseGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
-      const fWarningCount = courseGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
-      const studentsWithGradesInCourse = new Set(courseGrades.map(g => g.student_id)).size;
-
-      return {
-        courseCode: course.code || course.name,
-        courseName: course.name,
-        studentCount: studentsWithGradesInCourse,
-        fCount,
-        fWarningCount
-      };
-    }).filter(c => c.fCount > 0 || c.fWarningCount > 0);
-
-    // Students at risk
-    const studentFCounts: Record<string, number> = {};
-    gradedSnapshotGrades.forEach(g => {
-      if (g.grade === 'F' && g.grade_type !== 'warning') {
-        studentFCounts[g.student_id] = (studentFCounts[g.student_id] || 0) + 1;
-      }
-    });
-
-    const studentsAtRisk = {
-      with1F: Object.values(studentFCounts).filter(c => c === 1).length,
-      with2F: Object.values(studentFCounts).filter(c => c === 2).length,
-      with3PlusF: Object.values(studentFCounts).filter(c => c >= 3).length
-    };
-
-    const totalImprovements = gradeHistory.filter(
-      h => h.from_grade === 'F' && h.quarter_id === snapshot.quarter_id
-    ).length;
-
-    const totalFGrades = gradedSnapshotGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
-    const totalFWarnings = gradedSnapshotGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
-    const passRate = gradedSnapshotGrades.length > 0
-      ? ((gradedSnapshotGrades.length - totalFGrades) / gradedSnapshotGrades.length) * 100
-      : 0;
-
-    return {
-      name: snapshot.name,
-      quarterName: quarter?.name || 'Okänt kvartal',
-      snapshotDate: snapshot.created_at 
-        ? new Date(snapshot.created_at).toLocaleDateString('sv-SE')
-        : new Date().toLocaleDateString('sv-SE'),
-      stats: {
-        totalStudents: totalStudentsWithGrades,
-        totalStudentsAll,
-        coveragePct,
-        totalGrades: gradedSnapshotGrades.length,
-        totalFGrades,
-        totalFWarnings,
-        passRate,
-        totalImprovements
-      },
-      classBreakdown,
-      courseBreakdown,
-      studentsAtRisk
-    };
-  }, [quarters, gradeHistory, grades, students, courses, classes]);
-
-  const generateAnalysis = async (snapshotId: string) => {
-    const snapshot = getSnapshot(snapshotId);
-    if (!snapshot) return;
-    if (snapshot.analysis && snapshot.analysis.trim()) return;
-
-    setAnalysisState(prev => ({
-      ...prev,
-      [snapshotId]: { isLoading: true, analysis: null, error: null }
-    }));
-
-    try {
-      const snapshotData = buildAnalysisData(snapshot);
-      
-      const response = await fetch('/api/ai/analyze-snapshot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ snapshotData })
-      });
-
-      if (!response.ok) {
-        throw new Error('Kunde inte generera analys');
-      }
-
-      const data = await response.json();
-      if (!data?.analysis) throw new Error('Ingen analys returnerades');
-
-      await saveSnapshotAnalysis(snapshotId, data.analysis);
-      
-      setAnalysisState(prev => ({
-        ...prev,
-        [snapshotId]: { isLoading: false, analysis: data.analysis, error: null }
-      }));
-    } catch (error) {
-      console.error('Error generating analysis:', error);
-      setAnalysisState(prev => ({
-        ...prev,
-        [snapshotId]: { 
-          isLoading: false, 
-          analysis: null, 
-          error: error instanceof Error ? error.message : 'Ett fel uppstod'
-        }
-      }));
-    }
+  // Navigate to snapshot detail page
+  const openSnapshot = (snapshotId: string) => {
+    router.push(`/snapshots/${snapshotId}`);
   };
 
-  const downloadAnalysisPDF = async (snapshotId: string) => {
-    const snapshot = getSnapshot(snapshotId);
-    const state = analysisState[snapshotId];
-    if (!snapshot) return;
-
-    const analysisText = state?.analysis || snapshot.analysis;
-    if (!analysisText) return;
-
-    try {
-      const jsPDF = await loadJsPDF();
-      const doc = new jsPDF();
-      
-      const quarter = quarters.find(q => q.id === snapshot.quarter_id);
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 20;
-      const maxWidth = pageWidth - margin * 2;
-      
-      // Clean Header
-      doc.setFontSize(18);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Resultatanalys', margin, 20);
-      
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 100, 100);
-      doc.text('Järva Gymnasium', margin, 27);
-      
-      // Divider
-      doc.setDrawColor(230, 230, 230);
-      doc.line(margin, 35, pageWidth - margin, 35);
-      
-      // Snapshot Info
-      doc.setFontSize(14);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(0, 0, 0);
-      doc.text(snapshot.name, margin, 50);
-      
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 100, 100);
-      doc.text(`Kvartal: ${quarter?.name || 'Okänt'}`, margin, 57);
-      doc.text(`Genererad: ${new Date().toLocaleString('sv-SE')}`, margin, 62);
-      
-      // Content
-      doc.setTextColor(0, 0, 0);
-      const sanitizeForPdf = (input: string) => {
-        return input
-          .replace(/[^\x09\x0A\x0D\x20-\x7E\u00C0-\u017F]/g, '') // Basic Latin + Swedish
-          .replace(/\*\*/g, ''); // Remove markdown bold markers
-      };
-
-      const lines = sanitizeForPdf(analysisText).split('\n');
-      let yPosition = 80;
-
-      const ensureSpace = (needed: number) => {
-        if (yPosition > doc.internal.pageSize.getHeight() - needed) {
-          doc.addPage();
-          yPosition = 20;
-        }
-      };
-
-      for (const line of lines) {
-        if (!line.trim()) {
-          yPosition += 4;
-          continue;
-        }
-
-        // Headings
-        if (line.startsWith('###')) {
-          ensureSpace(20);
-          yPosition += 4;
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(12);
-          doc.text(line.replace(/#/g, '').trim(), margin, yPosition);
-          yPosition += 6;
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(10);
-          continue;
-        }
-
-        // Bullets
-        if (line.trim().startsWith('-') || line.trim().startsWith('•')) {
-          ensureSpace(10);
-          const text = line.replace(/^[-•]\s*/, '').trim();
-          const wrapped = doc.splitTextToSize(text, maxWidth - 5);
-          doc.text('•', margin, yPosition);
-          doc.text(wrapped, margin + 5, yPosition);
-          yPosition += wrapped.length * 5 + 2;
-          continue;
-        }
-
-        // Normal text
-        ensureSpace(10);
-        const wrapped = doc.splitTextToSize(line, maxWidth);
-        doc.text(wrapped, margin, yPosition);
-        yPosition += wrapped.length * 5;
-      }
-      
-      doc.save(`analys-${snapshot.name.replace(/\s+/g, '-').toLowerCase()}.pdf`);
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      alert('Kunde inte skapa PDF.');
+  // Calculate stats for a snapshot from grades table via quarter_id
+  const getSnapshotStats = (quarterId: string) => {
+    const quarterGrades = grades.filter(g => g.quarter_id === quarterId);
+    
+    if (quarterGrades.length === 0) {
+      return { totalFGrades: 0, totalWarnings: 0, passRate: 0 };
     }
+    
+    const totalFGrades = quarterGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
+    const totalWarnings = quarterGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
+    const gradedCount = quarterGrades.filter(g => g.grade).length;
+    const passRate = gradedCount > 0 
+      ? ((gradedCount - totalFGrades) / gradedCount) * 100 
+      : 0;
+    
+    return { totalFGrades, totalWarnings, passRate };
   };
 
   return (
-    <div className="space-y-8 animate-enter">
+    <div className="space-y-8">
       {/* Header */}
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="heading-lg mb-1">Snapshots</h2>
-          <p className="text-subtle">Spara och analysera betygsläget över tid.</p>
+          <h1 className="text-2xl font-bold text-[var(--text-primary)]">Snapshots</h1>
+          <p className="text-[var(--text-secondary)] mt-1">Spara och analysera betygsläget över tid</p>
         </div>
+        
         {canManage && (
           <button
             onClick={() => setShowForm(true)}
@@ -354,97 +101,75 @@ export default function SnapshotsTab() {
         )}
       </div>
 
-      {/* Form */}
-      {showForm && canManage && (
-        <div className="card p-6 mb-8 border-[var(--color-primary-light)] ring-1 ring-[var(--color-primary-subtle)]">
-          <h3 className="heading-md mb-4 text-lg">Skapa ny snapshot</h3>
-          
-          <div className="bg-[var(--color-primary-subtle)]/30 rounded-lg p-3 mb-6 border border-[var(--color-primary-subtle)]">
-            <p className="text-sm text-[var(--text-secondary)]">
-              <span className="font-semibold text-[var(--text-primary)]">Aktivt kvartal:</span> {activeQuarter?.name || 'Inget'}
-            </p>
-          </div>
-          
-          <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Create Form */}
+      {showForm && (
+        <div className="card p-6">
+          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Ny snapshot</h3>
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase mb-1.5 block">
-                Namn
+              <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                Namn *
               </label>
               <input
                 type="text"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
-                className="input"
-                placeholder="t.ex. VT 2024 - Vecka 10"
+                placeholder="T.ex. Vecka 45 - Lägesrapport"
+                className="input w-full"
                 required
               />
             </div>
-            
             <div>
-              <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase mb-1.5 block">
+              <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
                 Anteckningar
               </label>
               <textarea
                 value={formNotes}
                 onChange={(e) => setFormNotes(e.target.value)}
-                className="input min-h-[100px]"
-                placeholder="Valfri beskrivning..."
+                placeholder="Valfria anteckningar..."
+                className="input w-full h-24 resize-none"
               />
             </div>
-
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-3">
               <button
                 type="submit"
-                disabled={isSubmitting || !activeQuarter}
+                disabled={isSubmitting || !formName.trim()}
                 className="btn btn-primary"
               >
-                {isSubmitting ? 'Sparar...' : 'Spara snapshot'}
+                {isSubmitting ? 'Skapar...' : 'Skapa snapshot'}
               </button>
               <button
                 type="button"
                 onClick={resetForm}
-                className="btn btn-ghost"
+                className="btn btn-secondary"
               >
                 Avbryt
               </button>
             </div>
           </form>
+          
+          {activeQuarter && (
+            <p className="text-xs text-[var(--text-tertiary)] mt-4">
+              Snapshot skapas för aktivt kvartal: <span className="font-medium">{activeQuarter.name}</span>
+            </p>
+          )}
         </div>
       )}
 
-      {/* Grid */}
+      {/* Snapshots Grid */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {snapshots.map(snapshot => {
           const quarter = quarters.find(q => q.id === snapshot.quarter_id);
-          const hasAnalysis = snapshot.analysis || analysisState[snapshot.id]?.analysis;
-          
-          // Calculate stats - ALLTID från grades-tabellen via quarter_id
-          // (Betyg sparas INTE i quarter_snapshots enligt DB-schemat)
-          const calculateStats = () => {
-            const quarterGrades = grades.filter(g => g.quarter_id === snapshot.quarter_id);
-            
-            if (quarterGrades.length === 0) {
-              return { totalFGrades: 0, totalWarnings: 0, passRate: 0 };
-            }
-            
-            const totalFGrades = quarterGrades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length;
-            const totalWarnings = quarterGrades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length;
-            const gradedCount = quarterGrades.filter(g => g.grade).length;
-            const passRate = gradedCount > 0 
-              ? ((gradedCount - totalFGrades) / gradedCount) * 100 
-              : 0;
-            
-            return { totalFGrades, totalWarnings, passRate };
-          };
-          
-          const snapshotStats = calculateStats();
+          const stats = getSnapshotStats(snapshot.quarter_id);
+          const hasAnalysis = !!snapshot.analysis;
           
           return (
             <div
               key={snapshot.id}
-              className="card p-5 cursor-pointer hover:border-[var(--color-primary)] transition-all group flex flex-col h-full"
-              onClick={() => setSelectedSnapshot(snapshot.id)}
+              onClick={() => openSnapshot(snapshot.id)}
+              className="card p-6 cursor-pointer hover:border-[var(--color-primary)] transition-all group"
             >
+              {/* Header */}
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h3 className="font-semibold text-lg text-[var(--text-primary)] group-hover:text-[var(--color-primary)] transition-colors">
@@ -454,10 +179,7 @@ export default function SnapshotsTab() {
                 </div>
                 {canManage && (
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(snapshot.id);
-                    }}
+                    onClick={(e) => handleDelete(e, snapshot.id)}
                     className="p-2 text-[var(--text-tertiary)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                     title="Radera"
                   >
@@ -468,172 +190,52 @@ export default function SnapshotsTab() {
                 )}
               </div>
               
-              {/* Always show stats - calculated from data if needed */}
+              {/* Stats */}
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="bg-[var(--bg-hover)] rounded-lg p-3 text-center border border-[var(--border-subtle)]">
-                  <div className="text-xl font-bold text-[var(--color-danger)]">{snapshotStats.totalFGrades}</div>
+                  <div className="text-xl font-bold text-[var(--color-danger)]">{stats.totalFGrades}</div>
                   <div className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">F-betyg</div>
                 </div>
                 <div className="bg-[var(--bg-hover)] rounded-lg p-3 text-center border border-[var(--border-subtle)]">
-                  <div className="text-xl font-bold text-[var(--color-success)]">{snapshotStats.passRate.toFixed(0)}%</div>
+                  <div className="text-xl font-bold text-[var(--color-success)]">{stats.passRate.toFixed(0)}%</div>
                   <div className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">Godkända</div>
                 </div>
               </div>
               
-              <div className="mt-auto pt-4 border-t border-[var(--border-subtle)] flex justify-between items-center text-xs text-[var(--text-tertiary)]">
+              {/* Footer */}
+              <div className="pt-4 border-t border-[var(--border-subtle)] flex justify-between items-center text-xs text-[var(--text-tertiary)]">
                 <span>
                   {snapshot.created_at ? new Date(snapshot.created_at).toLocaleDateString('sv-SE') : '-'}
                 </span>
-                {hasAnalysis && (
-                  <span className="flex items-center gap-1 text-[var(--color-primary)] font-medium bg-[var(--color-primary-subtle)]/30 px-2 py-0.5 rounded">
-                    Analys klar
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {hasAnalysis && (
+                    <span className="flex items-center gap-1 text-[var(--color-primary)] font-medium bg-[var(--color-primary-subtle)]/30 px-2 py-0.5 rounded">
+                      Analys klar
+                    </span>
+                  )}
+                  <svg className="w-4 h-4 text-[var(--text-tertiary)] group-hover:text-[var(--color-primary)] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
               </div>
             </div>
           );
         })}
       </div>
 
+      {/* Empty State */}
       {snapshots.length === 0 && (
         <div className="text-center py-16 border-2 border-dashed border-[var(--border-strong)] rounded-xl">
+          <svg className="w-16 h-16 mx-auto text-[var(--text-tertiary)] mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
           <p className="text-[var(--text-secondary)] mb-2">Inga snapshots skapade än</p>
           {canManage && (
             <p className="text-sm text-[var(--text-tertiary)]">
               Använd knappen ovan för att spara din första snapshot
             </p>
           )}
-        </div>
-      )}
-
-      {/* Detail Modal */}
-      {selectedSnapshotData && (
-        <div className="modal-overlay" onClick={() => setSelectedSnapshot(null)}>
-          <div 
-            className="modal-content p-0 max-w-3xl w-full mx-4 overflow-hidden flex flex-col max-h-[90vh]"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="p-6 border-b border-[var(--border-subtle)] bg-[var(--bg-page)] flex justify-between items-start">
-              <div>
-                <h2 className="heading-md mb-1">{selectedSnapshotData.name}</h2>
-                <p className="text-sm text-[var(--text-secondary)]">
-                  {quarters.find(q => q.id === selectedSnapshotData.quarter_id)?.name} • {selectedSnapshotData.created_at ? new Date(selectedSnapshotData.created_at).toLocaleDateString('sv-SE') : ''}
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedSnapshot(null)}
-                className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors border border-[var(--border-subtle)]"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Modal Content - Scrollable */}
-            <div className="p-6 overflow-y-auto bg-[var(--bg-card)]">
-              {selectedSnapshotData.notes && (
-                <div className="bg-[var(--bg-hover)] rounded-xl p-4 mb-8 border border-[var(--border-subtle)]">
-                  <h4 className="text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Anteckningar</h4>
-                  <p className="text-sm text-[var(--text-primary)] leading-relaxed">{selectedSnapshotData.notes}</p>
-                </div>
-              )}
-
-              {/* Stats - calculated from data if stats is missing */}
-              {(() => {
-                const grades = selectedSnapshotData.data?.grades || [];
-                const modalStats = selectedSnapshotData.stats || {
-                  totalFGrades: grades.filter((g: any) => g.grade === 'F' && g.grade_type !== 'warning').length,
-                  totalWarnings: grades.filter((g: any) => g.grade === 'F' && g.grade_type === 'warning').length,
-                  passRate: grades.filter((g: any) => g.grade).length > 0 
-                    ? ((grades.filter((g: any) => g.grade).length - grades.filter((g: any) => g.grade === 'F' && g.grade_type !== 'warning').length) / grades.filter((g: any) => g.grade).length) * 100 
-                    : 0
-                };
-                return (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                    <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
-                      <div className="text-2xl font-bold text-[var(--color-danger)]">{modalStats.totalFGrades}</div>
-                      <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">F-betyg</div>
-                    </div>
-                    <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
-                      <div className="text-2xl font-bold text-[var(--color-warning)]">{modalStats.totalWarnings}</div>
-                      <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">Varningar</div>
-                    </div>
-                    <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
-                      <div className="text-2xl font-bold text-[var(--color-success)]">{modalStats.passRate.toFixed(1)}%</div>
-                      <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">Godkända</div>
-                    </div>
-                    <div className="stat-card p-4 text-center bg-[var(--bg-page)]">
-                      <div className="text-2xl font-bold text-[var(--color-primary)]">{selectedSnapshotData.data?.students?.length || 0}</div>
-                      <div className="text-xs font-medium text-[var(--text-secondary)] uppercase mt-1">Elever</div>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* AI Analysis Section */}
-              <div className="border-t border-[var(--border-subtle)] pt-8">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="heading-md text-lg">Analys</h3>
-                  
-                  {/* Action Buttons */}
-                  <div className="flex gap-3">
-                    {!(analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis) && (
-                      <button
-                        onClick={() => generateAnalysis(selectedSnapshotData.id)}
-                        disabled={analysisState[selectedSnapshotData.id]?.isLoading}
-                        className="btn btn-primary py-2 px-4 text-sm"
-                      >
-                        {analysisState[selectedSnapshotData.id]?.isLoading ? (
-                          <span className="flex items-center gap-2">
-                            <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                            Genererar...
-                          </span>
-                        ) : 'Generera analys'}
-                      </button>
-                    )}
-                    
-                    {(analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis) && (
-                      <button
-                        onClick={() => downloadAnalysisPDF(selectedSnapshotData.id)}
-                        className="btn btn-secondary py-2 px-4 text-sm flex items-center gap-2"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Ladda ner PDF
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Analysis Content */}
-                {(analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis) ? (
-                  <div className="prose prose-sm max-w-none text-[var(--text-primary)] bg-[var(--bg-page)] p-6 rounded-xl border border-[var(--border-subtle)]">
-                    <div className="whitespace-pre-wrap font-sans leading-relaxed">
-                      {analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-12 bg-[var(--bg-page)] rounded-xl border border-dashed border-[var(--border-strong)]">
-                    <p className="text-[var(--text-secondary)] mb-2">Ingen analys genererad än.</p>
-                    <p className="text-xs text-[var(--text-tertiary)]">Klicka på knappen ovan för att skapa en AI-driven analys av datan.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-page)] flex justify-end">
-              <button
-                onClick={() => setSelectedSnapshot(null)}
-                className="btn btn-secondary"
-              >
-                Stäng
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>
