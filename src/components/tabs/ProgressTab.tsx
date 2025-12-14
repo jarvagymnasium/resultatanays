@@ -25,21 +25,22 @@ export default function ProgressTab() {
   const allStudents = useMemo(() => [...students, ...archivedStudents], [students, archivedStudents]);
   const allCourses = useMemo(() => [...courses, ...archivedCourses], [courses, archivedCourses]);
 
-  // Find which quarters have improvements
+  // Find which quarters have improvements (F → better grade)
   const quartersWithImprovements = useMemo(() => {
     const quarterIds = new Set(
       gradeHistory
-        .filter(h => h.change_type === 'improvement')
+        .filter(h => h.from_grade === 'F')  // Legacy logic
         .map(h => h.quarter_id)
     );
     return quarters.filter(q => quarterIds.has(q.id));
   }, [gradeHistory, quarters]);
 
-  // Get improvements only
+  // Get improvements only - use from_grade === 'F' like the legacy code did
+  // This catches all F→better grade transitions regardless of change_type
   const improvements = useMemo(() => {
     const activeQuarterId = scope === 'active' ? activeQuarter?.id : undefined;
     return gradeHistory
-      .filter(h => h.change_type === 'improvement')
+      .filter(h => h.from_grade === 'F')  // Legacy logic: any transition FROM F
       .filter(h => !activeQuarterId || h.quarter_id === activeQuarterId)
       .map(h => ({
         ...h,
@@ -51,7 +52,7 @@ export default function ProgressTab() {
   }, [gradeHistory, allStudents, allCourses, activeQuarter?.id, scope]);
 
   const totalImprovementsAllQuarters = useMemo(() => {
-    return gradeHistory.filter(h => h.change_type === 'improvement').length;
+    return gradeHistory.filter(h => h.from_grade === 'F').length;  // Legacy logic
   }, [gradeHistory]);
 
   // Statistics
