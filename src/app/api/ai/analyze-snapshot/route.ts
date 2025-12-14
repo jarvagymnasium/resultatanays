@@ -136,13 +136,13 @@ export async function POST(request: NextRequest) {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'gpt-4.1',  // Latest OpenAI model for best analysis quality
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.7,
-        max_tokens: 3000,
+        max_tokens: 8000,  // Generous limit for comprehensive analysis
       }),
     });
 
