@@ -22,9 +22,13 @@ export default function ProgressTab() {
   const [scope, setScope] = useState<'active' | 'all'>('active');
 
   // Debug: log what's in gradeHistory
+  const allImprovements = gradeHistory.filter(h => h.change_type === 'improvement');
+  const quarterIds = [...new Set(allImprovements.map(h => h.quarter_id))];
   console.log('gradeHistory total:', gradeHistory.length, 
-    'improvements:', gradeHistory.filter(h => h.change_type === 'improvement').length,
-    'activeQuarter:', activeQuarter?.id);
+    'improvements:', allImprovements.length,
+    'activeQuarter:', activeQuarter?.id,
+    'quarter_ids in improvements:', quarterIds,
+    'matches active:', allImprovements.filter(h => h.quarter_id === activeQuarter?.id).length);
 
   // Get improvements only
   const improvements = useMemo(() => {
