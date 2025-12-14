@@ -465,18 +465,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   fetchSnapshots: async () => {
     // Legacy schema uses `quarter_snapshots` (not `snapshots`)
     // Keep the UI working by mapping the legacy rows into our Snapshot shape.
-    const { data, error } = await supabase
-      .from('quarter_snapshots')
-      .select('*, quarters(name)')
-      .order('snapshot_date', { ascending: false });
+    // NOTE: We intentionally avoid joins/order-by here because DB schemas vary slightly
+    // (FK relations may not be defined and some installs may not have `snapshot_date`).
+    const { data, error } = await supabase.from('quarter_snapshots').select('*');
 
-    if (error || !data) return;
+    if (error || !data) {
+      console.error('Error fetching snapshots:', error);
+      set({ snapshots: [] });
+      return;
+    }
 
-    const mapped = (data as any[]).map((row) => {
+    const sorted = [...(data as any[])].sort((a, b) => {
+      const aDate = new Date(a.snapshot_date || a.created_at || 0).getTime();
+      const bDate = new Date(b.snapshot_date || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+
+    const mapped = sorted.map((row) => {
       const notes: string | undefined = row.notes ?? undefined;
       const match = notes?.match(/📸\s+([^\n]+)/);
       const extractedName = match?.[1]?.trim();
-      const fallbackName = row.quarters?.name || 'Snapshot';
+      const fallbackName = 'Snapshot';
 
       return {
         id: row.id,
@@ -688,10 +697,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   
   setActiveQuarter: async (quarterId) => {
-    // Deactivate all quarters
-    await supabase.from('quarters').update({ is_active: false }).neq('id', '');
+    if (!quarterId) {
+      throw new Error('Ogiltigt kvartal-id (tomt).');
+    }
+
+    // Deactivate all other quarters (avoid invalid UUID errors by never comparing against '')
+    const { error: deactivateError } = await supabase
+      .from('quarters')
+      .update({ is_active: false })
+      .neq('id', quarterId);
+    if (deactivateError) throw deactivateError;
+
     // Activate selected quarter
-    await supabase.from('quarters').update({ is_active: true }).eq('id', quarterId);
+    const { error: activateError } = await supabase
+      .from('quarters')
+      .update({ is_active: true })
+      .eq('id', quarterId);
+    if (activateError) throw activateError;
     
     await get().fetchQuarters();
     clearCache('grades');
