@@ -192,34 +192,72 @@ export default function SnapshotDetailPage() {
       const maxWidth = pageWidth - margin * 2;
       let y = margin;
 
+      // Helper function to safely add text
+      const safeText = (text: string | undefined | null, x: number, yPos: number) => {
+        const safeStr = String(text || '').trim();
+        if (safeStr) {
+          doc.text(safeStr, x, yPos);
+        }
+      };
+
+      // Helper function to safely add wrapped text
+      const safeWrappedText = (text: string | undefined | null, x: number, width: number) => {
+        const safeStr = String(text || '').trim();
+        if (!safeStr) return;
+        
+        const wrapped = doc.splitTextToSize(safeStr, width);
+        if (Array.isArray(wrapped)) {
+          for (const wline of wrapped) {
+            if (y > 270) {
+              doc.addPage();
+              y = margin;
+            }
+            if (wline && typeof wline === 'string') {
+              doc.text(wline, x, y);
+            }
+            y += 6;
+          }
+        }
+      };
+
+      // Title
       doc.setFontSize(18);
       doc.setFont('helvetica', 'bold');
-      doc.text(snapshot.name, margin, y);
+      safeText(snapshot.name || 'Snapshot', margin, y);
       y += 10;
 
+      // Subtitle
       doc.setFontSize(11);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(100);
-      doc.text(`${quarter?.name || 'Okänt kvartal'} - ${snapshot.created_at ? new Date(snapshot.created_at).toLocaleDateString('sv-SE') : ''}`, margin, y);
+      const subtitle = `${quarter?.name || 'Okänt kvartal'} - ${snapshot.created_at ? new Date(snapshot.created_at).toLocaleDateString('sv-SE') : ''}`;
+      safeText(subtitle, margin, y);
       y += 15;
 
       doc.setTextColor(0);
       doc.setFontSize(10);
 
-      const lines = analysis.split('\n');
+      // Process analysis content
+      const lines = String(analysis || '').split('\n');
       for (const line of lines) {
-        const trimmed = line.trim();
+        const trimmed = (line || '').trim();
         if (!trimmed) {
           y += 5;
           continue;
+        }
+
+        // Check for page break
+        if (y > 270) {
+          doc.addPage();
+          y = margin;
         }
 
         if (trimmed.startsWith('### ')) {
           y += 8;
           doc.setFontSize(12);
           doc.setFont('helvetica', 'bold');
-          const text = trimmed.replace(/^### /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, '');
-          doc.text(text, margin, y);
+          const text = trimmed.replace(/^### /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, ' ').trim();
+          if (text) safeText(text, margin, y);
           y += 8;
           doc.setFontSize(10);
           doc.setFont('helvetica', 'normal');
@@ -227,8 +265,8 @@ export default function SnapshotDetailPage() {
           y += 10;
           doc.setFontSize(14);
           doc.setFont('helvetica', 'bold');
-          const text = trimmed.replace(/^## /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, '');
-          doc.text(text, margin, y);
+          const text = trimmed.replace(/^## /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, ' ').trim();
+          if (text) safeText(text, margin, y);
           y += 10;
           doc.setFontSize(10);
           doc.setFont('helvetica', 'normal');
@@ -236,37 +274,26 @@ export default function SnapshotDetailPage() {
           y += 12;
           doc.setFontSize(16);
           doc.setFont('helvetica', 'bold');
-          const text = trimmed.replace(/^# /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, '');
-          doc.text(text, margin, y);
+          const text = trimmed.replace(/^# /, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–]/g, ' ').trim();
+          if (text) safeText(text, margin, y);
           y += 12;
           doc.setFontSize(10);
           doc.setFont('helvetica', 'normal');
         } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-          const bulletText = trimmed.substring(2).replace(/[^\w\såäöÅÄÖ.,!?:;()\-–%]/g, '');
-          const wrapped = doc.splitTextToSize(`• ${bulletText}`, maxWidth - 5);
-          for (const wline of wrapped) {
-            if (y > 270) {
-              doc.addPage();
-              y = margin;
-            }
-            doc.text(wline, margin + 5, y);
-            y += 6;
+          const bulletText = trimmed.substring(2).replace(/[^\w\såäöÅÄÖ.,!?:;()\-–%]/g, ' ').trim();
+          if (bulletText) {
+            safeWrappedText(`• ${bulletText}`, margin + 5, maxWidth - 10);
           }
         } else {
-          const cleanText = trimmed.replace(/\*\*/g, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–%]/g, '');
-          const wrapped = doc.splitTextToSize(cleanText, maxWidth);
-          for (const wline of wrapped) {
-            if (y > 270) {
-              doc.addPage();
-              y = margin;
-            }
-            doc.text(wline, margin, y);
-            y += 6;
+          const cleanText = trimmed.replace(/\*\*/g, '').replace(/[^\w\såäöÅÄÖ.,!?:;()\-–%]/g, ' ').trim();
+          if (cleanText) {
+            safeWrappedText(cleanText, margin, maxWidth);
           }
         }
       }
 
-      doc.save(`${snapshot.name.replace(/[^a-zA-Z0-9åäöÅÄÖ]/g, '_')}_analys.pdf`);
+      const fileName = (snapshot.name || 'snapshot').replace(/[^a-zA-Z0-9åäöÅÄÖ\s]/g, '').replace(/\s+/g, '_');
+      doc.save(`${fileName}_analys.pdf`);
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('Kunde inte skapa PDF. Försök igen.');
