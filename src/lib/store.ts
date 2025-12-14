@@ -649,14 +649,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   
   setActiveQuarter: async (quarterId) => {
-    // Deactivate all quarters
-    await supabase.from('quarters').update({ is_active: false }).neq('id', '');
+    // Deactivate all OTHER quarters (not the one we're activating)
+    // Using neq('id', quarterId) instead of neq('id', '') to avoid UUID parse error
+    await supabase.from('quarters').update({ is_active: false }).neq('id', quarterId);
     // Activate selected quarter
     await supabase.from('quarters').update({ is_active: true }).eq('id', quarterId);
     
     await get().fetchQuarters();
     clearCache('grades');
     await get().fetchGrades();
+    // Also refresh grade history for the new quarter
+    await get().fetchGradeHistory();
   },
   
   deleteQuarter: async (quarterId) => {
