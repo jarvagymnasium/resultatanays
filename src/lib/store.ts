@@ -589,23 +589,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activeQuarter, grades, user } = get();
     if (!activeQuarter) throw new Error('Inget aktivt kvartal');
     
+    // VIKTIGT: Sök efter befintligt betyg för SAMMA kvartal
     const existingGrade = grades.find(
-      g => g.student_id === studentId && g.course_id === courseId
+      g => g.student_id === studentId && 
+           g.course_id === courseId && 
+           g.quarter_id === activeQuarter.id
     );
     
     const fromGrade = existingGrade?.grade || null;
     
     if (existingGrade) {
-      // Update existing
-      await supabase.from('grades').update({
+      // Update existing grade for this quarter
+      const { error } = await supabase.from('grades').update({
         grade,
         grade_type: gradeType,
         updated_at: new Date().toISOString(),
         teacher_id: user?.id
       }).eq('id', existingGrade.id);
+      
+      if (error) {
+        console.error('Error updating grade:', error);
+        throw error;
+      }
     } else {
-      // Insert new
-      await supabase.from('grades').insert({
+      // Insert new grade for this quarter
+      const { error } = await supabase.from('grades').insert({
         student_id: studentId,
         course_id: courseId,
         quarter_id: activeQuarter.id,
@@ -613,6 +621,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         grade_type: gradeType,
         teacher_id: user?.id
       });
+      
+      if (error) {
+        console.error('Error inserting grade:', error);
+        throw error;
+      }
     }
     
     // Log grade change for improvement tracking
