@@ -718,6 +718,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().fetchQuarters();
     clearCache('grades');
     await get().fetchGrades();
+    // ProgressTab is based on grade history; refetch to keep view fresh across quarter switches.
+    await get().fetchGradeHistory();
   },
   
   deleteQuarter: async (quarterId) => {

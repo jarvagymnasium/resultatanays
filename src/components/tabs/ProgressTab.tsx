@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { Line } from 'react-chartjs-2';
 import {
@@ -9,19 +9,21 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  Filler,
   Title,
   Tooltip,
   Legend,
 } from 'chart.js';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Title, Tooltip, Legend);
 
 export default function ProgressTab() {
   const { gradeHistory, students, courses, classes, activeQuarter } = useAppStore();
+  const [scope, setScope] = useState<'active' | 'all'>('active');
 
   // Get improvements only
   const improvements = useMemo(() => {
-    const activeQuarterId = activeQuarter?.id;
+    const activeQuarterId = scope === 'active' ? activeQuarter?.id : undefined;
     return gradeHistory
       .filter(h => h.change_type === 'improvement')
       .filter(h => !activeQuarterId || h.quarter_id === activeQuarterId)
@@ -32,7 +34,11 @@ export default function ProgressTab() {
       }))
       .filter(h => h.student && h.course)
       .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-  }, [gradeHistory, students, courses, activeQuarter?.id]);
+  }, [gradeHistory, students, courses, activeQuarter?.id, scope]);
+
+  const totalImprovementsAllQuarters = useMemo(() => {
+    return gradeHistory.filter(h => h.change_type === 'improvement').length;
+  }, [gradeHistory]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -134,7 +140,7 @@ export default function ProgressTab() {
   return (
     <div className="space-y-6">
       {/* Active quarter context */}
-      {activeQuarter && (
+      {activeQuarter && scope === 'active' && (
         <div className="card rounded-xl p-4 border border-[#624c9a] bg-[#624c9a]/5">
           <div className="flex items-center gap-3">
             <span className="text-2xl">📅</span>
@@ -145,6 +151,37 @@ export default function ProgressTab() {
           </div>
         </div>
       )}
+
+      {/* Scope toggle */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setScope('active')}
+          className={`px-3 py-1.5 rounded-lg text-sm border transition ${
+            scope === 'active'
+              ? 'bg-[#624c9a] text-white border-[#624c9a]'
+              : 'bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700'
+          }`}
+        >
+          Aktivt kvartal
+        </button>
+        <button
+          type="button"
+          onClick={() => setScope('all')}
+          className={`px-3 py-1.5 rounded-lg text-sm border transition ${
+            scope === 'all'
+              ? 'bg-[#624c9a] text-white border-[#624c9a]'
+              : 'bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700'
+          }`}
+        >
+          Alla kvartal
+        </button>
+        {scope === 'active' && improvements.length === 0 && totalImprovementsAllQuarters > 0 && (
+          <div className="ml-2 text-sm text-gray-500">
+            Inga förbättringar i detta kvartal. Prova “Alla kvartal” för att se historik.
+          </div>
+        )}
+      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
