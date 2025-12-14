@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// OpenAI API key from environment variable (set in Vercel dashboard)
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const SYSTEM_PROMPT = `Du är en erfaren skolanalytiker och pedagogisk rådgivare för Järva Gymnasium i Stockholm. Din uppgift är att analysera betygsdata från en snapshot och producera en insiktsfull rapport på svenska.
