@@ -34,7 +34,7 @@ export default function ProgressTab() {
   const allStudents = useMemo(() => [...students, ...archivedStudents], [students, archivedStudents]);
   const allCourses = useMemo(() => [...courses, ...archivedCourses], [courses, archivedCourses]);
 
-  // Get improvements based on scope
+  // Get improvements based on scope - with deduplication
   const improvements = useMemo(() => {
     let filteredHistory = gradeHistory;
 
@@ -43,9 +43,26 @@ export default function ProgressTab() {
       filteredHistory = gradeHistory.filter(h => h.quarter_id === activeQuarter.id);
     }
 
-    return filteredHistory
-      .filter(h => h.from_grade === 'F' && h.to_grade !== 'F') // Only F -> Passed (not F -> F)
-      .map(h => {
+    // Filter to only F -> Passed improvements
+    const fImprovements = filteredHistory.filter(h => h.from_grade === 'F' && h.to_grade !== 'F');
+    
+    // DEDUPLICATE: Keep only one entry per student+course+from_grade+to_grade combination
+    // Sort by created_at DESC first so we keep the newest entry
+    const sorted = [...fImprovements].sort((a, b) => 
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+    
+    const seen = new Map<string, boolean>();
+    const deduplicated = sorted.filter(h => {
+      const key = `${h.student_id}-${h.course_id}-${h.from_grade}-${h.to_grade}`;
+      if (seen.has(key)) {
+        return false; // Skip duplicate
+      }
+      seen.set(key, true);
+      return true;
+    });
+
+    return deduplicated.map(h => {
         // Use snapshot data if available (preserves info even if student/course deleted)
         const studentFromDb = allStudents.find(s => s.id === h.student_id);
         const courseFromDb = allCourses.find(c => c.id === h.course_id);
@@ -71,8 +88,7 @@ export default function ProgressTab() {
           student,
           course
         };
-      })
-      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      });
   }, [gradeHistory, allStudents, allCourses, scope, activeQuarter]);
 
   // Statistics
