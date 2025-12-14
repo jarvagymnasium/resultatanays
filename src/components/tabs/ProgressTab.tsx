@@ -44,13 +44,34 @@ export default function ProgressTab() {
     }
 
     return filteredHistory
-      .filter(h => h.from_grade === 'F') // Only count F -> Passed as improvement based on legacy logic
-      .map(h => ({
-        ...h,
-        student: allStudents.find(s => s.id === h.student_id),
-        course: allCourses.find(c => c.id === h.course_id)
-      }))
-      // Keep even if student/course is archived/missing to show history
+      .filter(h => h.from_grade === 'F' && h.to_grade !== 'F') // Only F -> Passed (not F -> F)
+      .map(h => {
+        // Use snapshot data if available (preserves info even if student/course deleted)
+        const studentFromDb = allStudents.find(s => s.id === h.student_id);
+        const courseFromDb = allCourses.find(c => c.id === h.course_id);
+        
+        // Build student object from snapshot or database
+        const student = studentFromDb || (h.student_snapshot ? {
+          id: h.student_id,
+          name: `${h.student_snapshot.first_name || ''} ${h.student_snapshot.last_name || ''}`.trim(),
+          first_name: h.student_snapshot.first_name,
+          last_name: h.student_snapshot.last_name,
+          class_id: h.student_snapshot.class_id
+        } : null);
+        
+        // Build course object from snapshot or database
+        const course = courseFromDb || (h.course_snapshot ? {
+          id: h.course_id,
+          name: h.course_snapshot.name,
+          code: h.course_snapshot.code
+        } : null);
+        
+        return {
+          ...h,
+          student,
+          course
+        };
+      })
       .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
   }, [gradeHistory, allStudents, allCourses, scope, activeQuarter]);
 

@@ -586,7 +586,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   
   setGrade: async (studentId, courseId, grade, gradeType) => {
-    const { activeQuarter, grades, user } = get();
+    const { activeQuarter, grades, user, students, courses, classes } = get();
     if (!activeQuarter) throw new Error('Inget aktivt kvartal');
     
     // VIKTIGT: Sök efter befintligt betyg för SAMMA kvartal
@@ -628,26 +628,77 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
     
-    // Log grade change for improvement tracking
-    if (fromGrade !== grade) {
-      const gradeOrder = ['F', 'E', 'D', 'C', 'B', 'A'];
-      const oldIndex = fromGrade ? gradeOrder.indexOf(fromGrade) : -1;
-      const newIndex = gradeOrder.indexOf(grade);
+    // 🔒 ONLY log F → Passed improvements (matching legacy behavior)
+    // This prevents duplicate entries and keeps grade_history clean
+    if (fromGrade === 'F' && grade !== 'F' && gradeType === 'grade') {
+      // Check if improvement already exists for this student/course/quarter
+      const { data: existingImprovement, error: checkError } = await supabase
+        .from('grade_history')
+        .select('id, to_grade')
+        .eq('student_id', studentId)
+        .eq('course_id', courseId)
+        .eq('quarter_id', activeQuarter.id)
+        .eq('from_grade', 'F')
+        .maybeSingle();
       
-      const changeType = !fromGrade ? 'new' 
-        : newIndex > oldIndex ? 'improvement'
-        : 'decline';
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('Error checking existing improvement:', checkError);
+      }
       
-      await supabase.from('grade_history').insert({
-        student_id: studentId,
-        course_id: courseId,
-        quarter_id: activeQuarter.id,
-        from_grade: fromGrade,
-        to_grade: grade,
-        change_type: changeType,
-        grade_type: gradeType,
-        changed_by: user?.id
-      });
+      if (existingImprovement) {
+        // Update existing improvement with new grade (don't create duplicate!)
+        console.log('Updating existing improvement record');
+        const { error: updateError } = await supabase
+          .from('grade_history')
+          .update({
+            to_grade: grade,
+            created_at: new Date().toISOString()
+          })
+          .eq('id', existingImprovement.id);
+        
+        if (updateError) {
+          console.error('Kunde inte uppdatera betygsutveckling:', updateError);
+        }
+      } else {
+        // Create new improvement record with snapshots (like legacy code)
+        console.log('Creating new improvement record with snapshot data');
+        
+        // Prepare snapshot data to preserve info even if student/course is deleted
+        const student = students.find(s => s.id === studentId);
+        const course = courses.find(c => c.id === courseId);
+        const studentClass = student ? classes.find(cl => cl.id === student.class_id) : null;
+        
+        const { error: historyError } = await supabase
+          .from('grade_history')
+          .insert({
+            student_id: studentId,
+            course_id: courseId,
+            quarter_id: activeQuarter.id,
+            from_grade: 'F',
+            to_grade: grade,
+            change_type: 'improvement',
+            teacher_id: user?.id,
+            // Snapshot data to preserve info even if original is deleted
+            student_snapshot: student ? {
+              first_name: student.first_name || student.name?.split(' ')[0] || '',
+              last_name: student.last_name || student.name?.split(' ').slice(1).join(' ') || '',
+              class_id: student.class_id,
+              class_name: studentClass?.name || null
+            } : null,
+            course_snapshot: course ? {
+              code: course.code,
+              name: course.name
+            } : null,
+            class_snapshot: studentClass ? {
+              id: studentClass.id,
+              name: studentClass.name
+            } : null
+          });
+        
+        if (historyError) {
+          console.error('Kunde inte spara betygsutveckling:', historyError);
+        }
+      }
     }
     
     clearCache('grades');
