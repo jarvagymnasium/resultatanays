@@ -474,7 +474,7 @@ export default function SnapshotsTab() {
                     ) : (
                       <>
                         <span>🤖</span>
-                        Ta fram AI-analys
+                        Ta fram analys
                       </>
                     )}
                   </button>
@@ -601,7 +601,7 @@ export default function SnapshotsTab() {
                   ) : (
                     <>
                       <span>🤖</span>
-                      Ta fram AI-analys
+                      Ta fram analys
                     </>
                   )}
                 </button>
