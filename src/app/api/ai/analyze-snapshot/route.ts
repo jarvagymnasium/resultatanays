@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.7,
-        max_tokens: 8000,  // Generous limit for comprehensive analysis
+        max_completion_tokens: 8000,  // Generous limit for comprehensive analysis
       }),
     });
 
