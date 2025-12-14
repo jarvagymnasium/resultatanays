@@ -463,14 +463,44 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   
   fetchSnapshots: async () => {
+    // Legacy schema uses `quarter_snapshots` (not `snapshots`)
+    // Keep the UI working by mapping the legacy rows into our Snapshot shape.
     const { data, error } = await supabase
-      .from('snapshots')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (!error && data) {
-      set({ snapshots: data });
-    }
+      .from('quarter_snapshots')
+      .select('*, quarters(name)')
+      .order('snapshot_date', { ascending: false });
+
+    if (error || !data) return;
+
+    const mapped = (data as any[]).map((row) => {
+      const notes: string | undefined = row.notes ?? undefined;
+      const match = notes?.match(/📸\s+([^\n]+)/);
+      const extractedName = match?.[1]?.trim();
+      const fallbackName = row.quarters?.name || 'Snapshot';
+
+      return {
+        id: row.id,
+        name: extractedName || fallbackName,
+        quarter_id: row.quarter_id,
+        notes,
+        data: {
+          grades: row.grades_snapshot || [],
+          students: row.students_snapshot || [],
+          courses: row.courses_snapshot || [],
+          classes: row.classes_snapshot || [],
+        },
+        stats: {
+          totalFGrades: row.total_f_grades || 0,
+          totalWarnings: row.total_f_warnings || 0,
+          passRate: row.pass_rate || 0,
+          averageGrade: 0,
+        },
+        created_at: row.snapshot_date || row.created_at || new Date().toISOString(),
+        created_by: row.created_by || undefined,
+      };
+    });
+
+    set({ snapshots: mapped });
   },
   
   fetchArchivedData: async () => {
@@ -678,29 +708,38 @@ export const useAppStore = create<AppState>((set, get) => ({
   createSnapshot: async (name, notes) => {
     const { activeQuarter, grades, students, courses, classes, user } = get();
     if (!activeQuarter) throw new Error('Inget aktivt kvartal');
-    
-    const snapshotData = {
-      name,
+
+    // Match legacy schema in Supabase: `quarter_snapshots`
+    const totalStudents = new Set(grades.map((g) => g.student_id)).size;
+    const totalGrades = grades.length;
+    const totalFGrades = grades.filter((g) => g.grade === 'F' && g.grade_type !== 'warning').length;
+    const totalFWarnings = grades.filter((g) => g.grade === 'F' && g.grade_type === 'warning').length;
+    const passRate = totalGrades > 0 ? ((totalGrades - totalFGrades) / totalGrades) * 100 : 0;
+
+    const combinedNotes = `📸 ${name}${notes ? `\n\n${notes}` : ''}\n\n(Manuell snapshot)`;
+
+    await supabase.from('quarter_snapshots').insert({
       quarter_id: activeQuarter.id,
-      notes,
-      data: { grades, students, courses, classes },
-      stats: {
-        totalFGrades: grades.filter(g => g.grade === 'F' && g.grade_type !== 'warning').length,
-        totalWarnings: grades.filter(g => g.grade === 'F' && g.grade_type === 'warning').length,
-        passRate: grades.length > 0 
-          ? (grades.filter(g => g.grade && g.grade !== 'F').length / grades.filter(g => g.grade).length) * 100 
-          : 0,
-        averageGrade: 0 // Calculate if needed
-      },
-      created_by: user?.id
-    };
-    
-    await supabase.from('snapshots').insert(snapshotData);
+      snapshot_date: new Date().toISOString(),
+      total_students: totalStudents,
+      total_grades: totalGrades,
+      total_f_grades: totalFGrades,
+      total_f_warnings: totalFWarnings,
+      pass_rate: passRate,
+      grades_snapshot: grades,
+      students_snapshot: students,
+      courses_snapshot: courses,
+      classes_snapshot: classes,
+      created_by: user?.id,
+      locked: true,
+      notes: combinedNotes,
+    });
+
     await get().fetchSnapshots();
   },
   
   deleteSnapshot: async (snapshotId) => {
-    await supabase.from('snapshots').delete().eq('id', snapshotId);
+    await supabase.from('quarter_snapshots').delete().eq('id', snapshotId);
     await get().fetchSnapshots();
   },
   
