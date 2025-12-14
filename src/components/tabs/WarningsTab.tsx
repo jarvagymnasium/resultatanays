@@ -36,6 +36,7 @@ export default function WarningsTab() {
   const [selectedStudent, setSelectedStudent] = useState<StudentWithGrades | null>(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [showAll, setShowAll] = useState(false);
   const ITEMS_PER_PAGE = 20;
 
   // ... (Calculation logic remains same, skipping for brevity in thought process but will include in write) ...
@@ -116,11 +117,12 @@ export default function WarningsTab() {
     setCurrentPage(1);
   }, [searchTerm, courseFilter, selectedClassIds, activeGradeTypeFilter]);
 
-  // Paginated students
+  // Paginated students (or all if showAll is true)
   const paginatedStudents = useMemo(() => {
+    if (showAll) return filteredStudents;
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredStudents.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [filteredStudents, currentPage]);
+  }, [filteredStudents, currentPage, showAll]);
 
   const totalPages = Math.ceil(filteredStudents.length / ITEMS_PER_PAGE);
 
@@ -538,73 +540,97 @@ export default function WarningsTab() {
             </div>
 
             {/* Pagination Controls */}
-            {totalPages > 1 && (
+            {(totalPages > 1 || showAll) && (
               <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/30 flex items-center justify-between">
                 <div className="text-sm text-[var(--text-tertiary)]">
-                  Visar {((currentPage - 1) * ITEMS_PER_PAGE) + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, filteredStudents.length)} av {filteredStudents.length}
+                  {showAll 
+                    ? `Visar alla ${filteredStudents.length} elever`
+                    : `Visar ${((currentPage - 1) * ITEMS_PER_PAGE) + 1}-${Math.min(currentPage * ITEMS_PER_PAGE, filteredStudents.length)} av ${filteredStudents.length}`
+                  }
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
+                  {/* Show All / Paginate Toggle */}
                   <button
-                    onClick={() => setCurrentPage(1)}
-                    disabled={currentPage === 1}
-                    className="px-2 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
-                    title="Första sidan"
+                    onClick={() => {
+                      setShowAll(!showAll);
+                      setCurrentPage(1);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+                      showAll 
+                        ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]' 
+                        : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-strong)] hover:bg-[var(--bg-hover)]'
+                    }`}
                   >
-                    ««
-                  </button>
-                  <button
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="px-3 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
-                  >
-                    Föregående
+                    {showAll ? 'Paginera' : 'Visa alla'}
                   </button>
                   
-                  {/* Page numbers */}
-                  <div className="flex items-center gap-1 mx-2">
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum: number;
-                      if (totalPages <= 5) {
-                        pageNum = i + 1;
-                      } else if (currentPage <= 3) {
-                        pageNum = i + 1;
-                      } else if (currentPage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + i;
-                      } else {
-                        pageNum = currentPage - 2 + i;
-                      }
+                  {/* Page navigation - only show when not showing all */}
+                  {!showAll && (
+                    <>
+                      <div className="w-px h-6 bg-[var(--border-subtle)] mx-1"></div>
+                      <button
+                        onClick={() => setCurrentPage(1)}
+                        disabled={currentPage === 1}
+                        className="px-2 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
+                        title="Första sidan"
+                      >
+                        ««
+                      </button>
+                      <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
+                      >
+                        Föregående
+                      </button>
                       
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => setCurrentPage(pageNum)}
-                          className={`w-8 h-8 rounded text-sm font-medium transition-colors ${
-                            currentPage === pageNum
-                              ? 'bg-[var(--color-primary)] text-white'
-                              : 'hover:bg-[var(--bg-hover)]'
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  
-                  <button
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="px-3 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
-                  >
-                    Nästa
-                  </button>
-                  <button
-                    onClick={() => setCurrentPage(totalPages)}
-                    disabled={currentPage === totalPages}
-                    className="px-2 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
-                    title="Sista sidan"
-                  >
-                    »»
-                  </button>
+                      {/* Page numbers */}
+                      <div className="flex items-center gap-1 mx-2">
+                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                          let pageNum: number;
+                          if (totalPages <= 5) {
+                            pageNum = i + 1;
+                          } else if (currentPage <= 3) {
+                            pageNum = i + 1;
+                          } else if (currentPage >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i;
+                          } else {
+                            pageNum = currentPage - 2 + i;
+                          }
+                          
+                          return (
+                            <button
+                              key={pageNum}
+                              onClick={() => setCurrentPage(pageNum)}
+                              className={`w-8 h-8 rounded text-sm font-medium transition-colors ${
+                                currentPage === pageNum
+                                  ? 'bg-[var(--color-primary)] text-white'
+                                  : 'hover:bg-[var(--bg-hover)]'
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      
+                      <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
+                      >
+                        Nästa
+                      </button>
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={currentPage === totalPages}
+                        className="px-2 py-1 rounded text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-hover)] transition-colors"
+                        title="Sista sidan"
+                      >
+                        »»
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}
