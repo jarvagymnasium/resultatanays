@@ -522,7 +522,7 @@ export default function SnapshotsTab() {
                       generateAnalysis(snapshot.id);
                     }}
                     disabled={state?.isLoading}
-                    className="w-full px-3 py-2 bg-gradient-to-r from-[#624c9a] to-[#e72c81] text-white rounded-lg text-sm font-medium hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="w-full px-3 py-2 bg-linear-to-r from-[#624c9a] to-[#e72c81] text-white rounded-lg text-sm font-medium hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {state?.isLoading ? (
                       <>
@@ -625,9 +625,9 @@ export default function SnapshotsTab() {
             {(analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis) && (
               <div className="mb-6">
                 <h3 className="font-semibold mb-3 flex items-center gap-2">
-                  <span>🤖</span> AI-Analys
+                  <span>🤖</span> Analys
                 </h3>
-                <div className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
+                <div className="bg-linear-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
                   <div className="prose prose-sm dark:prose-invert max-w-none">
                     <pre className="whitespace-pre-wrap text-sm font-sans">
                       {analysisState[selectedSnapshotData.id]?.analysis || selectedSnapshotData.analysis}
@@ -649,7 +649,7 @@ export default function SnapshotsTab() {
                 <button
                   onClick={() => generateAnalysis(selectedSnapshotData.id)}
                   disabled={analysisState[selectedSnapshotData.id]?.isLoading}
-                  className="px-4 py-2 bg-gradient-to-r from-[#624c9a] to-[#e72c81] text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
+                  className="px-4 py-2 bg-linear-to-r from-[#624c9a] to-[#e72c81] text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
                 >
                   {analysisState[selectedSnapshotData.id]?.isLoading ? (
                     <>
