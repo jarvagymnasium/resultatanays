@@ -48,23 +48,20 @@ export async function GET() {
     }
 
     // Find duplicates in grade_history
-    // Based on the PDF, duplicates have: same student, course, from_grade, to_grade
-    // We'll also include quarter_id if it exists, and truncate date to day level
+    // Key: student_id + course_id + from_grade + to_grade (NO date - we want to find ALL duplicates)
     const historySeen = new Map<string, any>();
     const historyDuplicates: any[] = [];
 
     console.log(`Analyzing ${allHistory?.length || 0} grade_history records...`);
 
     for (const history of allHistory || []) {
-      // Create a key that identifies true duplicates
-      // Same student, course, from_grade, to_grade, and same day
-      const dateStr = history.created_at ? history.created_at.substring(0, 10) : 'nodate';
-      const key = `${history.student_id}-${history.course_id}-${history.from_grade}-${history.to_grade}-${dateStr}`;
+      // Simple key - same student, course, from_grade, to_grade = duplicate
+      const key = `${history.student_id}-${history.course_id}-${history.from_grade}-${history.to_grade}`;
       
       if (historySeen.has(key)) {
         historyDuplicates.push(history);
       } else {
-        historySeen.set(key, history); // FIXED: was incorrectly using 'history' as key
+        historySeen.set(key, history);
       }
     }
 
@@ -159,14 +156,13 @@ export async function DELETE() {
       const historyDuplicateIds: string[] = [];
 
       for (const history of allHistory) {
-        // Same key logic as GET
-        const dateStr = history.created_at ? history.created_at.substring(0, 10) : 'nodate';
-        const key = `${history.student_id}-${history.course_id}-${history.from_grade}-${history.to_grade}-${dateStr}`;
+        // Simple key - NO date, just the core fields
+        const key = `${history.student_id}-${history.course_id}-${history.from_grade}-${history.to_grade}`;
         
         if (historySeen.has(key)) {
           historyDuplicateIds.push(history.id);
         } else {
-          historySeen.set(key, history); // FIXED: was incorrectly using 'history' as key
+          historySeen.set(key, history);
         }
       }
 
