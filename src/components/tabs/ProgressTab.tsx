@@ -17,12 +17,14 @@ import {
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 export default function ProgressTab() {
-  const { gradeHistory, students, courses, classes } = useAppStore();
+  const { gradeHistory, students, courses, classes, activeQuarter } = useAppStore();
 
   // Get improvements only
   const improvements = useMemo(() => {
+    const activeQuarterId = activeQuarter?.id;
     return gradeHistory
       .filter(h => h.change_type === 'improvement')
+      .filter(h => !activeQuarterId || h.quarter_id === activeQuarterId)
       .map(h => ({
         ...h,
         student: students.find(s => s.id === h.student_id),
@@ -30,7 +32,7 @@ export default function ProgressTab() {
       }))
       .filter(h => h.student && h.course)
       .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-  }, [gradeHistory, students, courses]);
+  }, [gradeHistory, students, courses, activeQuarter?.id]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -131,6 +133,19 @@ export default function ProgressTab() {
 
   return (
     <div className="space-y-6">
+      {/* Active quarter context */}
+      {activeQuarter && (
+        <div className="card rounded-xl p-4 border border-[#624c9a] bg-[#624c9a]/5">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📅</span>
+            <div>
+              <div className="font-semibold">Visar utveckling för</div>
+              <div className="text-xl font-bold text-[#624c9a]">{activeQuarter.name}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="stat-card card rounded-xl p-4 border">
