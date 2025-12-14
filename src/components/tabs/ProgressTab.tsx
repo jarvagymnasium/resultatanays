@@ -18,12 +18,22 @@ import {
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Title, Tooltip, Legend);
 
 export default function ProgressTab() {
-  const { gradeHistory, students, courses, classes, activeQuarter, archivedStudents, archivedCourses } = useAppStore();
+  const { gradeHistory, students, courses, classes, activeQuarter, archivedStudents, archivedCourses, quarters } = useAppStore();
   const [scope, setScope] = useState<'active' | 'all'>('active');
 
   // Combine active + archived students/courses so we can show historical improvements
   const allStudents = useMemo(() => [...students, ...archivedStudents], [students, archivedStudents]);
   const allCourses = useMemo(() => [...courses, ...archivedCourses], [courses, archivedCourses]);
+
+  // Find which quarters have improvements
+  const quartersWithImprovements = useMemo(() => {
+    const quarterIds = new Set(
+      gradeHistory
+        .filter(h => h.change_type === 'improvement')
+        .map(h => h.quarter_id)
+    );
+    return quarters.filter(q => quarterIds.has(q.id));
+  }, [gradeHistory, quarters]);
 
   // Get improvements only
   const improvements = useMemo(() => {
@@ -161,7 +171,7 @@ export default function ProgressTab() {
       )}
 
       {/* Scope toggle */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => setScope('active')}
@@ -184,12 +194,27 @@ export default function ProgressTab() {
         >
           Alla kvartal
         </button>
-        {scope === 'active' && improvements.length === 0 && totalImprovementsAllQuarters > 0 && (
-          <div className="ml-2 text-sm text-gray-500">
-            Inga förbättringar i detta kvartal. Prova “Alla kvartal” för att se historik.
-          </div>
-        )}
       </div>
+
+      {/* Info about which quarters have improvements */}
+      {scope === 'active' && improvements.length === 0 && totalImprovementsAllQuarters > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <span className="text-xl">💡</span>
+            <div>
+              <p className="font-medium text-amber-800 dark:text-amber-200">
+                Inga förbättringar i {activeQuarter?.name}
+              </p>
+              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                Förbättringar finns i: {quartersWithImprovements.map(q => q.name).join(', ') || 'inga kvartal'}
+              </p>
+              <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+                Klicka på "Alla kvartal" för att se all historik, eller byt aktivt kvartal under Historik → Kvartal.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
