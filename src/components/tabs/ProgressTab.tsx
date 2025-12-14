@@ -43,10 +43,12 @@ export default function ProgressTab() {
       filteredHistory = gradeHistory.filter(h => h.quarter_id === activeQuarter.id);
     }
 
-    // Filter to only F -> Passed improvements
+    // Filter to only F -> Passed improvements (not F -> F)
     const fImprovements = filteredHistory.filter(h => h.from_grade === 'F' && h.to_grade !== 'F');
     
-    // DEDUPLICATE: Keep only one entry per student+course+from_grade+to_grade combination
+    // DEDUPLICATE: Keep only ONE entry per student+course combination
+    // This means if a student improved in the same course multiple times,
+    // we only count/show the LATEST improvement
     // Sort by created_at DESC first so we keep the newest entry
     const sorted = [...fImprovements].sort((a, b) => 
       new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
@@ -54,9 +56,10 @@ export default function ProgressTab() {
     
     const seen = new Map<string, boolean>();
     const deduplicated = sorted.filter(h => {
-      const key = `${h.student_id}-${h.course_id}-${h.from_grade}-${h.to_grade}`;
+      // Key is just student+course - one improvement per student per course
+      const key = `${h.student_id}-${h.course_id}`;
       if (seen.has(key)) {
-        return false; // Skip duplicate
+        return false; // Skip duplicate - already have newer entry
       }
       seen.set(key, true);
       return true;
