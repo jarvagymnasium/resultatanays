@@ -112,6 +112,7 @@ export interface Snapshot {
   name: string;
   quarter_id: string;
   notes?: string;
+  analysis?: string | null;
   data: {
     grades: Grade[];
     students: Student[];
