@@ -365,9 +365,11 @@ body {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* Start from top, not center - prevents top cutoff */
   justify-content: center;
   padding: 1rem;
+  padding-top: 5rem; /* Extra top padding for header clearance */
+  overflow-y: auto; /* Allow overlay to scroll if modal is very tall */
   animation: fadeIn 0.2s ease-out;
 }
 
@@ -380,19 +382,20 @@ body {
   background-color: var(--bg-card);
   border-radius: 16px;
   box-shadow: var(--shadow-xl), 0 0 40px rgba(0, 0, 0, 0.15);
-  max-height: 90vh;
+  max-height: calc(100vh - 8rem); /* Account for top/bottom padding */
   overflow-y: auto;
   animation: modalSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-bottom: 2rem; /* Bottom spacing when scrolling */
 }
 
 @keyframes modalSlideIn {
   from {
     opacity: 0;
-    transform: scale(0.95) translateY(10px);
+    transform: translateY(-20px);
   }
   to {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: translateY(0);
   }
 }
 
