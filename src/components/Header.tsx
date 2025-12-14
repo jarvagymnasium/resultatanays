@@ -5,15 +5,11 @@ import { createPortal } from 'react-dom';
 import { useAppStore } from '@/lib/store';
 import type { TabId } from '@/lib/types';
 
-// Main navigation tabs (excluding Register items)
+// Main navigation tabs (shown directly in nav bar)
 const MAIN_TABS: { id: TabId; label: string; icon: string; permission?: string }[] = [
   { id: 'warnings', label: 'F-varningar', icon: '⚠️' },
   { id: 'progress', label: 'Utveckling', icon: '📈' },
   { id: 'grades', label: 'Betyg', icon: '📝', permission: 'manage_grades' },
-  { id: 'quarters', label: 'Kvartal', icon: '📅', permission: 'manage_quarters' },
-  { id: 'archive', label: 'Arkiv', icon: '🗄️', permission: 'manage_students' },
-  { id: 'compare', label: 'Jämför', icon: '⚖️' },
-  { id: 'snapshots', label: 'Snapshots', icon: '📸' },
 ];
 
 // Register dropdown items
@@ -21,6 +17,14 @@ const REGISTER_TABS: { id: TabId; label: string; icon: string; permission?: stri
   { id: 'students', label: 'Elever', icon: '👥', permission: 'manage_students' },
   { id: 'courses', label: 'Kurser', icon: '📚', permission: 'manage_courses' },
   { id: 'classes', label: 'Klasser', icon: '🏫', permission: 'manage_classes' },
+];
+
+// Historik dropdown items
+const HISTORIK_TABS: { id: TabId; label: string; icon: string; permission?: string }[] = [
+  { id: 'quarters', label: 'Kvartal', icon: '📅', permission: 'manage_quarters' },
+  { id: 'archive', label: 'Arkiv', icon: '🗄️', permission: 'manage_students' },
+  { id: 'compare', label: 'Jämför', icon: '⚖️' },
+  { id: 'snapshots', label: 'Snapshots', icon: '📸' },
 ];
 
 export default function Header() {
@@ -36,38 +40,63 @@ export default function Header() {
 
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showRegisterMenu, setShowRegisterMenu] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
+  const [showHistorikMenu, setShowHistorikMenu] = useState(false);
+  const [registerDropdownPos, setRegisterDropdownPos] = useState({ top: 0, left: 0 });
+  const [historikDropdownPos, setHistorikDropdownPos] = useState({ top: 0, left: 0 });
   const [mounted, setMounted] = useState(false);
+  
   const registerBtnRef = useRef<HTMLButtonElement>(null);
   const registerMenuRef = useRef<HTMLDivElement>(null);
+  const historikBtnRef = useRef<HTMLButtonElement>(null);
+  const historikMenuRef = useRef<HTMLDivElement>(null);
 
   // Client-side only mounting for portal
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Close register menu when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      // Close Register menu
       if (registerMenuRef.current && !registerMenuRef.current.contains(event.target as Node) &&
           registerBtnRef.current && !registerBtnRef.current.contains(event.target as Node)) {
         setShowRegisterMenu(false);
+      }
+      // Close Historik menu
+      if (historikMenuRef.current && !historikMenuRef.current.contains(event.target as Node) &&
+          historikBtnRef.current && !historikBtnRef.current.contains(event.target as Node)) {
+        setShowHistorikMenu(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Calculate dropdown position when opening
+  // Calculate dropdown position when opening Register
   const handleRegisterClick = () => {
     if (!showRegisterMenu && registerBtnRef.current) {
       const rect = registerBtnRef.current.getBoundingClientRect();
-      setDropdownPos({
+      setRegisterDropdownPos({
         top: rect.bottom + 8,
-        left: Math.max(10, rect.left + (rect.width / 2) - 90) // 90 = half of min-width 180px
+        left: Math.max(10, rect.left + (rect.width / 2) - 90)
       });
     }
     setShowRegisterMenu(!showRegisterMenu);
+    setShowHistorikMenu(false); // Close other dropdown
+  };
+
+  // Calculate dropdown position when opening Historik
+  const handleHistorikClick = () => {
+    if (!showHistorikMenu && historikBtnRef.current) {
+      const rect = historikBtnRef.current.getBoundingClientRect();
+      setHistorikDropdownPos({
+        top: rect.bottom + 8,
+        left: Math.max(10, rect.left + (rect.width / 2) - 90)
+      });
+    }
+    setShowHistorikMenu(!showHistorikMenu);
+    setShowRegisterMenu(false); // Close other dropdown
   };
 
   const getUserInitials = (email: string) => {
@@ -96,8 +125,15 @@ export default function Header() {
     return userCan(tab.permission as 'view_data' | 'manage_classes' | 'manage_courses' | 'manage_students' | 'manage_grades' | 'manage_quarters');
   });
 
+  const visibleHistorikTabs = HISTORIK_TABS.filter(tab => {
+    if (!tab.permission) return true;
+    return userCan(tab.permission as 'view_data' | 'manage_classes' | 'manage_courses' | 'manage_students' | 'manage_grades' | 'manage_quarters');
+  });
+
   const isRegisterTabActive = REGISTER_TABS.some(tab => tab.id === activeTab);
+  const isHistorikTabActive = HISTORIK_TABS.some(tab => tab.id === activeTab);
   const showRegister = visibleRegisterTabs.length > 0;
+  const showHistorik = visibleHistorikTabs.length > 0;
 
   const roleConfig = getRoleConfig();
 
@@ -191,8 +227,8 @@ export default function Header() {
         {/* Navigation tabs */}
         <nav className="header-nav">
           <div className="nav-track">
-            {/* First two main tabs */}
-            {visibleMainTabs.slice(0, 2).map((tab, index) => (
+            {/* Main tabs: F-varningar, Utveckling, Betyg */}
+            {visibleMainTabs.map((tab, index) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -212,7 +248,7 @@ export default function Header() {
                   ref={registerBtnRef}
                   onClick={handleRegisterClick}
                   className={`nav-tab nav-tab-dropdown ${isRegisterTabActive ? 'nav-tab-active' : ''}`}
-                  style={{ '--tab-index': 2 } as React.CSSProperties}
+                  style={{ '--tab-index': visibleMainTabs.length } as React.CSSProperties}
                 >
                   <span className="nav-tab-icon">📋</span>
                   <span className="nav-tab-label">Register</span>
@@ -232,7 +268,7 @@ export default function Header() {
                   <div 
                     ref={registerMenuRef}
                     className="register-dropdown"
-                    style={{ top: dropdownPos.top, left: dropdownPos.left }}
+                    style={{ top: registerDropdownPos.top, left: registerDropdownPos.left }}
                   >
                     {visibleRegisterTabs.map((tab) => (
                       <button
@@ -253,19 +289,53 @@ export default function Header() {
               </>
             )}
 
-            {/* Remaining main tabs */}
-            {visibleMainTabs.slice(2).map((tab, index) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`nav-tab ${activeTab === tab.id ? 'nav-tab-active' : ''}`}
-                style={{ '--tab-index': index + 3 } as React.CSSProperties}
-              >
-                <span className="nav-tab-icon">{tab.icon}</span>
-                <span className="nav-tab-label">{tab.label}</span>
-                {activeTab === tab.id && <span className="nav-tab-indicator"></span>}
-              </button>
-            ))}
+            {/* Historik dropdown */}
+            {showHistorik && (
+              <>
+                <button
+                  ref={historikBtnRef}
+                  onClick={handleHistorikClick}
+                  className={`nav-tab nav-tab-dropdown ${isHistorikTabActive ? 'nav-tab-active' : ''}`}
+                  style={{ '--tab-index': visibleMainTabs.length + 1 } as React.CSSProperties}
+                >
+                  <span className="nav-tab-icon">📜</span>
+                  <span className="nav-tab-label">Historik</span>
+                  <svg 
+                    className={`w-3.5 h-3.5 ml-1 transition-transform duration-200 ${showHistorikMenu ? 'rotate-180' : ''}`} 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                  {isHistorikTabActive && <span className="nav-tab-indicator"></span>}
+                </button>
+
+                {/* Historik dropdown menu - rendered via portal */}
+                {showHistorikMenu && mounted && createPortal(
+                  <div 
+                    ref={historikMenuRef}
+                    className="register-dropdown"
+                    style={{ top: historikDropdownPos.top, left: historikDropdownPos.left }}
+                  >
+                    {visibleHistorikTabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => {
+                          setActiveTab(tab.id);
+                          setShowHistorikMenu(false);
+                        }}
+                        className={`register-dropdown-item ${activeTab === tab.id ? 'register-dropdown-item-active' : ''}`}
+                      >
+                        <span className="text-base">{tab.icon}</span>
+                        <span>{tab.label}</span>
+                      </button>
+                    ))}
+                  </div>,
+                  document.body
+                )}
+              </>
+            )}
           </div>
         </nav>
       </div>
